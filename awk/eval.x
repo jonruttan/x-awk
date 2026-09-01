@@ -1394,15 +1394,15 @@
           (sys-close 3)
           (let ((slurp ()))
             (set! slurp
-              ; 4096-byte chunks.  The size WAS load-bearing: make-string
+              ; 64K chunks.  The old 4096 was load-bearing: make-string
               ; (Str8 make) >= 16K crashed the interpreter -- not an
               ; allocation bug, but Str8 make's list-encode path putting
-              ; one C eval frame per element (fixed 2026-09-01 in x-lang
-              ; lib/x/protocol/str/str8.x: make now delegates to repeat's
-              ; binary doubling).  Safe to raise once the bundle's minimum
-              ; x-lang tree carries that fix.
+              ; one C eval frame per element.  Fixed 2026-09-01 in x-lang
+              ; lib/x/protocol/str/str8.x (make delegates to repeat's
+              ; binary doubling), so this size now REQUIRES a tree with
+              ; that fix -- the first release after v0.9.0 (lang.xon).
               (fn (self acc)
-                (let ((chunk (file-read-fd 0 4096)))
+                (let ((chunk (file-read-fd 0 65536)))
                   (if (if (string? chunk) (> (string-length chunk) 0) #f)
                     (self (pair chunk acc))
                     (string-concat (reverse acc))))))

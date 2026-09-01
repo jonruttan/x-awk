@@ -23,8 +23,10 @@
 (dialect rn)
 
 ; PAIRING, NOT PINNING.  This row tracks what the specs are green AGAINST.
-; v0.9.0 is the release current when the bundle was scaffolded; nothing here
-; is known to need newer.
+; v0.9.0 is the release current when the bundle was scaffolded.  ONE thing
+; now needs newer: the stdin slurp's 64K chunks (awk/eval.x) need the Str8
+; make stack fix (x-lang 245dc6d9, post-v0.9.0) -- ride this row to the
+; first release that carries it.
 (requires-release "v0.9.0")
 
 (entry "run.x")
