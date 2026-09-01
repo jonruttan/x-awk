@@ -44,9 +44,11 @@ has no word size to wrap at and prints -1.
 ```
 
 C awk prints 1.414213562373; the float boundary caps its rationals at
-ten significant digits (1.414213562000) because the engine's rational
-arithmetic corrupts beyond ~1e13-denominator operands -- see the
-%awk-float->rat comment.  Lift the cap when the engine is fixed.
+ten significant digits (1.414213562000).  The cap was born as a fence
+against a tower defect (rational cross products wrapping past 2^63),
+SINCE FIXED in x-lang; it stays as an economy -- native-int formatter
+intermediates, no bigint churn -- see the %awk-float->rat comment.
+Lift it the day a spec wants the extra digits.
 
 ## leftmost-longest
 
@@ -60,17 +62,22 @@ lib/x/type/regex.x is a backtracking leftmost-FIRST engine (PCRE-style);
 POSIX awk requires leftmost-LONGEST.  Matching (not extraction) rarely
 differs; sub/gsub extraction will, once built.
 
-## not built yet, loudly
+## close of a failing output pipe
 
-### the pipe forms: "cmd" | getline, and print | "cmd"
+### close answers the command's exit status, not one-true-awk's 0
 
 ```awk
-(awk-run "BEGIN{\"echo hi\" | getline l; print l}" "")
+(awk-run "BEGIN{cmd=\"read x; exit 7\"; print \"x\" | cmd; print close(cmd)}" "")
 ```
+---
+    7
 
-File getline, output redirection, system() and the command-line front
-are built; the two pipe forms need fork/exec/pipe plumbing (ash's
-territory) and are the CLI's one remaining gap.
+POSIX says close of a print pipe answers the command's exit status, and
+gawk agrees (7); one-true-awk 20200816 answers 0 no matter what the
+child exited with.  This bundle follows POSIX -- the status is the whole
+point of checking close.
+
+## not built yet, loudly
 
 ### exit from inside a function
 

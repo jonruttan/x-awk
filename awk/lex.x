@@ -61,61 +61,66 @@
 ; Number: digits [. digits] [(e|E) [+|-] digits].  Assembled EXACTLY:
 ; 1.5 becomes 3/2, 25e-2 becomes 1/4.  eval.x owns turning these back
 ; into awk-formatted text.
+;
+; HOT beyond the lexer: %awk-looks-numeric runs this once per FIELD, so
+; the scan is bytes through (str byte-ref) -- the ISA's `hot` door --
+; with the digit runs in module-level helpers (no inner def: a def in a
+; called body binds globally, and per-field defs grow the env).
+(def %awk-lexn-int
+  (fn (self src end j acc)
+    (if (>= j end) (pair acc j)
+      (let ((b (byte-at src j)))
+        (if (%awk-lex-digit? b)
+          (self src end (+ j 1) (+ (* acc 10) (- b 48)))
+          (pair acc j))))))
+(def %awk-lexn-frac
+  (fn (self src end j acc k)
+    (if (>= j end) (pair (pair acc k) j)
+      (let ((b (byte-at src j)))
+        (if (%awk-lex-digit? b)
+          (self src end (+ j 1) (+ (* acc 10) (- b 48)) (+ k 1))
+          (pair (pair acc k) j))))))
+; exponent tail: nil, or (value . next) -- only when digits follow
+; (else `1e` is a number then a name, awk's own reading)
+(def %awk-lexn-exp
+  (fn (_ src end j)
+    (if (>= j end) ()
+      (let ((b (byte-at src j)))
+        (if (if (= b 101) #t (= b 69))                  ; e E
+          (let ((k (+ j 1)))
+            (let ((neg (if (< k end) (= (byte-at src k) 45) #f)))
+              (let ((k2 (if (if (< k end)
+                              (let ((sb (byte-at src k)))
+                                (if (= sb 43) #t (= sb 45)))  ; + -
+                              #f)
+                          (+ k 1) k)))
+                (if (%awk-b-digit-at2? src end k2)
+                  (let ((er (%awk-lexn-int src end k2 0)))
+                    (pair (if neg (- 0 (first er)) (first er)) (rest er)))
+                  ()))))
+          ())))))
+(def %awk-b-digit-at2?
+  (fn (_ s end j)
+    (if (>= j end) #f (%awk-lex-digit? (byte-at s j)))))
 (def %awk-lex-num
   (fn (_ src i end)
-    (def int-part
-      (fn (self j acc)
-        (if (>= j end) (pair acc j)
-          (let ((ci (char->integer (string-ref src j))))
-            (if (%awk-lex-digit? ci)
-              (self (+ j 1) (+ (* acc 10) (- ci 48)))
-              (pair acc j))))))
-    (def ir (int-part i 0))
-    (def ival (first ir))
-    (def after-int (rest ir))
-    ; fractional digits, tracked as (value . count)
-    (def frac-part
-      (fn (self j acc k)
-        (if (>= j end) (pair (pair acc k) j)
-          (let ((ci (char->integer (string-ref src j))))
-            (if (%awk-lex-digit? ci)
-              (self (+ j 1) (+ (* acc 10) (- ci 48)) (+ k 1))
-              (pair (pair acc k) j))))))
-    (def fr
-      (if (if (< after-int end) (= (string-ref src after-int) #\.) #f)
-        (frac-part (+ after-int 1) 0 0)
-        (pair (pair 0 0) after-int)))
-    (def fval (first (first fr)))
-    (def fcount (rest (first fr)))
-    (def after-frac (rest fr))
-    (def mant (+ ival (/ fval (%awk-pow10 fcount))))
-    ; exponent: e/E, only when digits actually follow (else `1e` is a
-    ; number then a name, awk's own reading)
-    (def exp-part
-      (fn (_ j)
-        (if (>= j end) ()
-          (let ((c (string-ref src j)))
-            (if (if (= c #\e) #t (= c #\E))
-              (let ((k (+ j 1)))
-                (def neg (if (< k end) (= (string-ref src k) #\-) #f))
-                (def k2 (if (if (< k end)
-                              (if (= (string-ref src k) #\+) #t
-                                (= (string-ref src k) #\-)) #f)
-                          (+ k 1) k))
-                (if (if (< k2 end)
-                      (%awk-lex-digit? (char->integer (string-ref src k2))) #f)
-                  (let ((er (int-part k2 0)))
-                    (pair (if neg (- 0 (first er)) (first er)) (rest er)))
-                  ()))
-              ())))))
-    (def er (exp-part after-frac))
-    (if (null? er)
-      (pair (list (lit num) mant) after-frac)
-      (let ((e (first er)))
-        (pair
-          (list (lit num)
-            (if (< e 0) (/ mant (%awk-pow10 (- 0 e))) (* mant (%awk-pow10 e))))
-          (rest er))))))
+    (let ((ir (%awk-lexn-int src end i 0)))
+      (let ((ival (first ir)))
+        (let ((fr (if (if (< (rest ir) end) (= (byte-at src (rest ir)) 46) #f)
+                    (%awk-lexn-frac src end (+ (rest ir) 1) 0 0)
+                    (pair (pair 0 0) (rest ir)))))
+          (let ((mant (+ ival (/ (first (first fr))
+                                 (%awk-pow10 (rest (first fr)))))))
+            (let ((er (%awk-lexn-exp src end (rest fr))))
+              (if (null? er)
+                (pair (list (lit num) mant) (rest fr))
+                (let ((e (first er)))
+                  (pair
+                    (list (lit num)
+                      (if (< e 0)
+                        (/ mant (%awk-pow10 (- 0 e)))
+                        (* mant (%awk-pow10 e))))
+                    (rest er)))))))))))
 
 ; String constant: escapes processed here, so the parser and evaluator only
 ; ever see the text meant.  Chars accumulate reversed; one list->string.

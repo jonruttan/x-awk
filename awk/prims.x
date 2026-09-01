@@ -31,12 +31,15 @@
   string-length string-ref substring string-append string-concat
   string=? string? make-string list->string convert
   length reverse append map filter nth set-first!
+  byte-at byte-len
   regex-compile regex-search regex-split regex-replace-all regex-find-at
   float-from float->string float-sin float-cos float-exp float-log
   float-sqrt float-atan2 make-rng rng-int
   file-open-write file-open-append file-close file-write
   file-read-all file-read-fd file-exists? file-unlink
-  proc-run sys-exit sys-dup2 sys-close)
+  proc-run proc-capture sys-exit sys-dup2 sys-close
+  sys-pipe sys-fork sys-exec sys-wait
+  sys-sigpipe-ignore! sys-sigpipe-default!)
 
 ; THE DIRECT PRIMS, NOT THE CONVERT DISPATCHER, for the two casts the lexer
 ; makes per character: the dispatching version walks type alists and
@@ -48,6 +51,12 @@
 
 (def string-length (fn (_ s) (Str8 length s)))
 (def string-ref (fn (_ s i) (Str8 ref i s)))
+; THE HOT DOORS: (str byte-ref) and (str byte-len) are catalog prims the
+; ISA flags `hot` -- one C call, no char object, no class dispatch.  The
+; per-record path reads BYTES through these; awk in the C locale is a
+; byte-oriented tool, so bytes are the honest unit anyway.
+(def byte-at (prim-ref (lit str) (lit byte-ref)))
+(def byte-len (prim-ref (lit str) (lit byte-len)))
 ; Scheme's substring is [start, end); Str8 sub is (start, LENGTH).
 (def substring (fn (_ s a b) (Str8 sub a (- b a) s)))
 (def string=? (fn (_ a b) (str=? a b)))
@@ -128,8 +137,23 @@
     (if (if (number? r) (> r 0) #f) (substring buf 0 r) "")))
 (def file-exists? (fn (_ path) (File exists? path)))
 (def file-unlink (fn (_ path) (File unlink path)))
-; system(cmd) is the shell's reading of cmd, wait included.
+; system(cmd) is the shell's reading of cmd, wait included; capture is
+; the same with stdout piped back as (status . text).
 (def proc-run (fn (_ argv) (Proc run! argv)))
+(def proc-capture (fn (_ argv) (Proc capture argv)))
 (def sys-exit (fn (_ n) (Sys exit n)))
 (def sys-dup2 (fn (_ a b) (Sys dup2 a b)))
 (def sys-close (fn (_ fd) (Sys close fd)))
+; The output-pipe quartet: (Sys pipe) answers (read-fd . write-fd);
+; exec takes the program then its arguments WITHOUT argv0 repeated --
+; Proc run!'s own reading.
+(def sys-pipe (fn (_) (Sys pipe)))
+(def sys-fork (fn (_) (Sys fork)))
+(def sys-exec (fn (_ path argv) (Sys exec path argv)))
+(def sys-wait (fn (_ pid) (Sys wait pid)))
+; SIGPIPE (13 on every platform x targets) must be ignored while an
+; output pipe is open: a child that exits without reading turns the
+; parent's write into process DEATH, not an error.  The child restores
+; the default before exec so the command sees normal pipe semantics.
+(def sys-sigpipe-ignore! (fn (_) (Sys signal 13 (Sys sig-ign))))
+(def sys-sigpipe-default! (fn (_) (Sys signal 13 (Sys sig-dfl))))

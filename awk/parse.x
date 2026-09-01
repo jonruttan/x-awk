@@ -305,9 +305,24 @@
 ; Relational: non-associative in awk (a < b < c is a syntax error in
 ; POSIX; here the second < simply ends the parse and the statement layer
 ; objects).  `>` only when the context allows it -- see the header.
+; FIRST, though: `"cmd" | getline [var]` claims a | whose next token is
+; the getline keyword -- which is what keeps `print a | "cmd"` safe: at
+; print's | the next token is a string, so the expression layer declines
+; and the redirection layer takes it.
 (def %awk-p-rel
   (fn (_ toks gt)
-    (def r (%awk-p-concat toks gt))
+    (def r0 (%awk-p-concat toks gt))
+    (def pipe-loop
+      (fn (self acc ts)
+        (if (if (%awk-p-op? ts "|") (%awk-p-kw? (rest ts) (lit getline)) #f)
+          (let ((after (rest (rest ts))))
+            (def lv (if (eq? (%awk-p-tag after) (lit name))
+                      (list (lit var) (first (rest (first after))))
+                      ()))
+            (self (list (lit getline) lv (list (lit cmd) acc))
+              (if (null? lv) after (rest after))))
+          (pair acc ts))))
+    (def r (pipe-loop (first r0) (rest r0)))
     (def ts (rest r))
     (def s (if (%awk-p-op? ts "<") "<"
              (if (%awk-p-op? ts "<=") "<="
@@ -443,14 +458,15 @@
 (def %awk-p-body
   (fn (_ toks) (%awk-p-stmt (%awk-p-skip-nl toks))))
 
-; After a print's argument list: > appends nothing, >> appends -- the
-; REDIRECTIONS, reachable precisely because the list was parsed with
-; gt=#f.  The target is a concatenation-level expression.
+; After a print's argument list: > truncates, >> appends, | pipes to a
+; command -- the REDIRECTIONS, reachable precisely because the list was
+; parsed with gt=#f.  The target is a concatenation-level expression.
 (def %awk-p-maybe-redir
   (fn (_ plain-tag redir-tag args ts)
     (def mode
       (if (%awk-p-op? ts ">>") (lit append)
-        (if (%awk-p-op? ts ">") (lit trunc) ())))
+        (if (%awk-p-op? ts ">") (lit trunc)
+          (if (%awk-p-op? ts "|") (lit pipe) ()))))
     (if (null? mode)
       (pair (pair plain-tag args) ts)
       (let ((t (%awk-p-concat (rest ts) #f)))
