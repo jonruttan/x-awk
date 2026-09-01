@@ -23,13 +23,13 @@ expansion, writing through the same l-value door as assignment;
 atan2, exp, log, sqrt) on the platform's libm floats, converted back to
 rationals at the boundary so floats never enter the value model; and
 `rand`/`srand` on the platform's deterministic xorshift; `RS` including
-paragraph mode; `getline` and `getline var` from the main input and from
-files (`getline < "f"`); user functions -- parameters as the only locals,
-arrays by reference, recursion, forward references; output redirection
-(`print > f`, `>> f`), `close()`, `system()`; and the command line
-itself.  The recorded gap -- the two pipe forms, `"cmd" | getline` and
-`print | "cmd"` -- lives as a pending spec in
-`tests/specs/04-divergences.spec.md`, not as a promise.
+paragraph mode; `getline` from the main input, files, and commands
+(`"cmd" | getline`, one stream per command string); user functions;
+output redirection (`print > f`, `>> f`, `| "cmd"` with SIGPIPE held
+off), `close()`, `system()`; and the command line itself.  FEATURE
+COMPLETE for the POSIX surface this bundle targets: what remains in
+`tests/specs/04-divergences.spec.md` is recorded divergences, not
+missing features.
 
 Paired with x-lang v0.9.0 (`lang.xon` is the checkable row).
 
@@ -50,9 +50,12 @@ FILENAME/FNR/ARGV/ARGC are live, and exit's status is the process's.
 `x -l awk` with no operands is the x REPL with the awk core loaded --
 `(awk-run PROGRAM-TEXT INPUT-TEXT)` is the pure core the suite drives.
 
-Pre-release honesty: the interpreter allocates heavily per record and
-the tower boots in seconds, so the practical ceiling is a few thousand
-records until a performance pass (and two reported engine limits) land.
+Pre-release honesty: an interpreted awk on an interpreted tower is not
+C awk -- after the first performance pass (byte-door scans, if-chain
+dispatchers, no defs at depth: 2.8x on the record loop) it runs about
+8ms/record plus a ~7s dialect boot.  Fine for scripts and suites;
+size real data accordingly.  The next step is the platform's compile
+lanes.
 
 ## Tests
 
