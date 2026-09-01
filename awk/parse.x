@@ -95,7 +95,7 @@
 (def %awk-p-builtins
   (list "length" "substr" "index" "int" "split" "sprintf" "sub" "gsub"
         "match" "toupper" "tolower" "sin" "cos" "atan2" "exp" "log" "sqrt"
-        "rand" "srand"))
+        "rand" "srand" "close" "system"))
 
 (def %awk-p-builtin?
   (fn (_ s)
@@ -173,15 +173,18 @@
                 ((string=? nm "length")
                   (pair (list (lit call) "length" ()) (rest toks)))
                 (#t (pair (list (lit var) nm) (rest toks))))))
-          ; getline [var]: the main-input forms; file and pipe forms
-          ; arrive with the CLI front.
+          ; getline [var] [< expr]: main input, or a file.  The pipe
+          ; form ("cmd" | getline) is still to come.
           ((%awk-p-kw? toks (lit getline))
-            (if (eq? (%awk-p-tag (rest toks)) (lit name))
-              (pair
-                (list (lit getline)
-                  (list (lit var) (first (rest (first (rest toks))))))
-                (rest (rest toks)))
-              (pair (list (lit getline) ()) (rest toks))))
+            (let ((lv (if (eq? (%awk-p-tag (rest toks)) (lit name))
+                        (list (lit var) (first (rest (first (rest toks)))))
+                        ())))
+              (def ts (if (null? lv) (rest toks) (rest (rest toks))))
+              (if (%awk-p-op? ts "<")
+                (let ((t (%awk-p-concat (rest ts) gt)))
+                  (pair (list (lit getline) lv (list (lit file) (first t)))
+                    (rest t)))
+                (pair (list (lit getline) lv ()) ts))))
           ((%awk-p-op? toks "(")
             (let ((r (%awk-p-expr (%awk-p-skip-nl (rest toks)) #t)))
               (if (%awk-p-op? (rest r) ")")
@@ -440,6 +443,19 @@
 (def %awk-p-body
   (fn (_ toks) (%awk-p-stmt (%awk-p-skip-nl toks))))
 
+; After a print's argument list: > appends nothing, >> appends -- the
+; REDIRECTIONS, reachable precisely because the list was parsed with
+; gt=#f.  The target is a concatenation-level expression.
+(def %awk-p-maybe-redir
+  (fn (_ plain-tag redir-tag args ts)
+    (def mode
+      (if (%awk-p-op? ts ">>") (lit append)
+        (if (%awk-p-op? ts ">") (lit trunc) ())))
+    (if (null? mode)
+      (pair (pair plain-tag args) ts)
+      (let ((t (%awk-p-concat (rest ts) #f)))
+        (pair (list redir-tag mode (first t) args) (rest t))))))
+
 ; The C-style for ladder: init ; cond ; update, each part optional.
 ; The caller has consumed `for (` and ruled out the for-in shape.
 (def %awk-p-for-c
@@ -474,12 +490,13 @@
             (%awk-p-err "expected }" (rest r)))))
       ((%awk-p-kw? toks (lit print))
         (let ((r (%awk-p-print-args (rest toks))))
-          (pair (pair (lit print) (first r)) (rest r))))
+          (%awk-p-maybe-redir (lit print) (lit printr) (first r) (rest r))))
       ((%awk-p-kw? toks (lit printf))
         (let ((r (%awk-p-print-args (rest toks))))
           (if (null? (first r))
             (%awk-p-err "printf needs a format string" toks)
-            (pair (pair (lit printf) (first r)) (rest r)))))
+            (%awk-p-maybe-redir (lit printf) (lit printfr)
+              (first r) (rest r)))))
       ((%awk-p-kw? toks (lit if))
         (let ((c (%awk-p-cond (rest toks) "if")))
           (def t (%awk-p-body (rest c)))

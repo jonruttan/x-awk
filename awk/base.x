@@ -26,7 +26,8 @@
 (import awk/prims)
 (import awk/printer)
 
-(provide awk/base awk-version awk-tokenize awk-parse awk-run %awk-repl-print)
+(provide awk/base awk-version awk-tokenize awk-parse awk-run
+  awk-argv awk-parse-cli awk-main %awk-repl-print)
 
 (def awk-version "0.1.0")
 
@@ -34,3 +35,4 @@
 (include-once "./parse.x")
 (include-once "./eval.x")
 (include-once "./fmt.x")
+(include-once "./cli.x")

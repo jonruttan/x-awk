@@ -62,15 +62,15 @@ differs; sub/gsub extraction will, once built.
 
 ## not built yet, loudly
 
-### file and pipe getline, redirection, system, command-line files
+### the pipe forms: "cmd" | getline, and print | "cmd"
 
 ```awk
-(awk-run "{print > \"file\"}" "a\n")
+(awk-run "BEGIN{\"echo hi\" | getline l; print l}" "")
 ```
 
-The main-input getline forms are built; the file (getline < "f"), pipe
-("cmd" | getline), and output-redirection forms arrive with the CLI
-front and the Sys doors.
+File getline, output redirection, system() and the command-line front
+are built; the two pipe forms need fork/exec/pipe plumbing (ash's
+territory) and are the CLI's one remaining gap.
 
 ### exit from inside a function
 

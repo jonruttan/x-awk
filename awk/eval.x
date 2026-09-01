@@ -34,9 +34,18 @@
 (def %awk-f0 "")        ; the current record's text
 (def %awk-fields ())    ; current fields, as values (strnum or string)
 (def %awk-fs-cache ())  ; (fs-text . splitter) -- see %awk-split-record
-(def %awk-input "")     ; the run's whole input text
-(def %awk-recs (lit unread))  ; remaining records; see %awk-recs-force!
-(def %awk-funcs ())     ; ((name params . body) ...)
+(def %awk-recs (lit unread))  ; current file's remaining records, or a
+                              ; sentinel: unread (nothing opened yet),
+                              ; done (every source exhausted)
+(def %awk-funcs ())       ; ((name params . body) ...)
+(def %awk-operands ())    ; remaining file / var=value operands
+(def %awk-any-file? #f)   ; has any input source been opened yet?
+(def %awk-stdin-text "")  ; stdin's content: preset by awk-run, read
+                          ; from fd 3 once by the CLI (see below)
+(def %awk-stdin-mode (lit text))  ; text (preset) | fd (reclaim and read)
+(def %awk-outs ())        ; print redirection: ((path . fd) ...)
+(def %awk-ins ())         ; getline < file: ((path . recs-box) ...)
+(def %awk-exit-code 0)    ; what exit carried; awk-main's status
 
 (def %awk-var-box
   (fn (_ name)
@@ -218,12 +227,14 @@
 ; --- Number formatting: %.6g from exact values -------------------------------
 
 ; trunc toward zero, via the probed fact that (% x 1) answers the
-; fractional part for a non-negative rational.  The (+ 0 ...) is load-
-; bearing: the tower's SUBTRACT can answer a denominator-1 rational
-; (1/1) without demoting it to an int at large denominators, and a
-; digit loop that then computes (+ 48 d) hands integer->char a rational
-; -- garbage bytes in the output.  ADD normalizes; measured, not
-; reasoned (the probes are in the suite's history).
+; fractional part for a non-negative rational.  The (+ 0 ...) was
+; load-bearing against a tower defect, SINCE FIXED in x-lang: rational
+; cross products wrapped past 2^63 and 2+-limb bigints never demoted,
+; so SUBTRACT at large denominators could answer a non-demoted
+; denominator-1 value, and a digit loop computing (+ 48 d) handed
+; integer->char garbage.  On a fixed tree the subtract demotes on its
+; own (probed: (- 14142135623731/10^13 (% same 1)) is eq? to 1); the
+; (+ 0 ...) stays as a no-cost guard for older platform trees.
 (def %awk-trunc
   (fn (_ x)
     (+ 0
@@ -593,14 +604,16 @@
 ; --- The float boundary and the PRNG -----------------------------------------
 ; A libm result comes back as its printed digits re-read into a rational,
 ; so floats never leak into the value model.  CAPPED AT 10 SIGNIFICANT
-; DIGITS, and the cap is load-bearing: the engine's rational arithmetic
-; silently corrupts somewhere past ~1e13-denominator operands (measured:
-; frac*1e5 + 1/2 on a 14-digit mantissa answered a wrong, non-integral
-; rational; the probes are in the suite's history).  Ten digits keeps
-; every formatter intermediate far inside the safe regime while carrying
-; 100x more precision than %.6g renders.  Digits past the tenth become
-; zeros -- position preserved, so magnitude survives and fraction tails
-; reduce away.
+; DIGITS.  The cap WAS load-bearing against a tower defect, SINCE FIXED
+; in x-lang: rational cross products used the raw C binaries and wrapped
+; past 2^63 at ~1e13-denominator operands (measured: frac*1e5 + 1/2 on a
+; 14-digit mantissa answered a wrong, non-integral rational).  A fixed
+; tree promotes those crosses to bigint and reduces them back down, so
+; the cap is now an economy, not a correctness fence: ten digits keeps
+; formatter intermediates native-int cheap (no bigint churn) while
+; carrying 100x more precision than %.6g renders.  Digits past the
+; tenth become zeros -- position preserved, so magnitude survives and
+; fraction tails reduce away.
 (def %awk-float->rat
   (fn (_ f)
     (def s (float->string f))
@@ -691,6 +704,9 @@
       ((string=? name "srand")
         (%awk-srand!
           (if (null? args) %awk-seed (%awk-trunc (%awk-to-num (first args))))))
+      ((string=? name "close") (%awk-close-name! (%awk-to-str (first args))))
+      ((string=? name "system")
+        (proc-run (list "/bin/sh" "-c" (%awk-to-str (first args)))))
       ((string=? name "int")
         (%awk-trunc (%awk-to-num (first args))))
       ((string=? name "substr")
@@ -765,6 +781,64 @@
     (def new (+ old delta))
     (%awk-lval-set! lv new)
     (if pre? new old)))
+
+; getline's read table: one record stream per path, split with the RS
+; current at first read.  Answers a record, eof, or noent (unopenable).
+(def %awk-getline-file!
+  (fn (_ path)
+    (def find
+      (fn (self es)
+        (if (null? es) ()
+          (if (string=? (first (first es)) path)
+            (rest (first es))
+            (self (rest es))))))
+    (def box (find %awk-ins))
+    (def box2
+      (if (not (null? box)) box
+        (if (file-exists? path)
+          (let ((b (list (%awk-records (file-read-all path)))))
+            (set! %awk-ins (pair (pair path b) %awk-ins))
+            b)
+          ())))
+    (if (null? box2) (lit noent)
+      (if (null? (first box2)) (lit eof)
+        (let ((rec (first (first box2))))
+          (set-first! box2 (rest (first box2)))
+          rec)))))
+
+; close(name): drop the read stream and/or close the write fd for the
+; path.  0 when something closed, -1 when nothing was open -- awk's
+; answer shape.
+(def %awk-close-name!
+  (fn (_ path)
+    (def del
+      (fn (self es)
+        (if (null? es) ()
+          (if (string=? (first (first es)) path)
+            (rest es)
+            (pair (first es) (self (rest es)))))))
+    (def had-in
+      (fn (_)
+        (def go
+          (fn (self es)
+            (if (null? es) #f
+              (if (string=? (first (first es)) path) #t (self (rest es))))))
+        (go %awk-ins)))
+    (def had-out
+      (fn (_)
+        (def go
+          (fn (self es)
+            (if (null? es) ()
+              (if (string=? (first (first es)) path)
+                (rest (first es))
+                (self (rest es))))))
+        (go %awk-outs)))
+    (def in? (had-in))
+    (def out-fd (had-out))
+    (if in? (set! %awk-ins (del %awk-ins)) ())
+    (if (null? out-fd) ()
+      (do (file-close out-fd) (set! %awk-outs (del %awk-outs))))
+    (if (if in? #t (not (null? out-fd))) 0 (- 0 1))))
 
 ; A user function call.  awk's scoping: parameters are the ONLY locals
 ; (extras beyond the arguments start uninit), everything else is global.
@@ -902,16 +976,25 @@
           (%awk-eval (first (rest (rest (rest node)))))))
       ((eq? tag (lit ucall))
         (%awk-ucall (first (rest node)) (first (rest (rest node)))))
-      ; getline [var]: the next main-input record.  Bare getline is a
-      ; full record swap ($0, NF); the var form stores the text only.
-      ; Both count NR.  1 on a record, 0 at end of input.
+      ; getline [var] [< file]: 1 on a record, 0 at exhaustion, and for
+      ; the file form -1 when the file cannot be opened.  Bare getline
+      ; is a full record swap ($0, NF); the var form stores the text
+      ; only.  The MAIN form counts NR/FNR; the file form touches
+      ; neither, POSIX's split.
       ((eq? tag (lit getline))
-        (let ((rec (%awk-next-record!)))
-          (if (eq? rec (lit eof)) 0
-            (do (if (null? (first (rest node)))
-                  (%awk-set-record! rec)
-                  (%awk-lval-set! (first (rest node)) (%awk-input-val rec)))
-                1))))
+        (let ((src (first (rest (rest node)))))
+          (def rec
+            (if (null? src)
+              (%awk-next-record!)
+              (%awk-getline-file! (%awk-to-str (%awk-eval (first (rest src)))))))
+          (match
+            ((eq? rec (lit eof)) 0)
+            ((eq? rec (lit noent)) (- 0 1))
+            (#t
+              (do (if (null? (first (rest node)))
+                    (%awk-set-record! rec)
+                    (%awk-lval-set! (first (rest node)) (%awk-input-val rec)))
+                  1)))))
       ((eq? tag (lit preinc)) (%awk-incr! (first (rest node)) 1 #t))
       ((eq? tag (lit postinc)) (%awk-incr! (first (rest node)) 1 #f))
       ((eq? tag (lit predec)) (%awk-incr! (first (rest node)) (- 0 1) #t))
@@ -956,19 +1039,56 @@
           (%awk-sprintf (if (null? f) "%.6g" (%awk-to-str f)) (list v))))
       (%awk-to-str v))))
 
-(def %awk-print!
+; A print's whole output, ORS included, as ONE string -- so stdout and a
+; redirection target share every formatting rule.
+(def %awk-print-str
   (fn (_ args)
     (def ofs (%awk-to-str (%awk-var-get "OFS")))
     (def go
-      (fn (self as first?)
-        (unless (null? as)
-          (unless first? (display ofs))
-          (display (%awk-out-str (%awk-eval (first as))))
-          (self (rest as) #f))))
-    (if (null? args)
-      (display %awk-f0)
-      (go args #t))
-    (display (%awk-to-str (%awk-var-get "ORS")))))
+      (fn (self as acc)
+        (if (null? as) (reverse acc)
+          (self (rest as)
+            (pair (%awk-out-str (%awk-eval (first as)))
+              (if (null? acc) acc (pair ofs acc)))))))
+    (string-concat
+      (append
+        (if (null? args) (list %awk-f0) (go args ()))
+        (list (%awk-to-str (%awk-var-get "ORS")))))))
+
+(def %awk-printf-str
+  (fn (_ args)
+    (%awk-sprintf (%awk-to-str (%awk-eval (first args)))
+      (map (fn (_ a) (%awk-eval a)) (rest args)))))
+
+; The redirection table: one fd per target path, opened on first use
+; with the statement's mode (> truncates, >> appends), shared by every
+; later print to the same target whatever its arrow -- awk's own rule.
+(def %awk-out-fd!
+  (fn (_ path mode)
+    (def find
+      (fn (self es)
+        (if (null? es) ()
+          (if (string=? (first (first es)) path)
+            (rest (first es))
+            (self (rest es))))))
+    (def hit (find %awk-outs))
+    (if (not (null? hit)) hit
+      (let ((fd (if (eq? mode (lit append))
+                  (file-open-append path)
+                  (file-open-write path))))
+        (if (< fd 0)
+          (Err raise (lit awk)
+            (string-append "awk: can't open for output: " path) ())
+          (do (set! %awk-outs (pair (pair path fd) %awk-outs))
+              fd))))))
+
+(def %awk-close-outs!
+  (fn (_)
+    (map (fn (_ e) (file-close (rest e))) %awk-outs)
+    (set! %awk-outs ())))
+
+(def %awk-print!
+  (fn (_ args) (display (%awk-print-str args))))
 
 ; MATCH CLAUSES ARE SINGLE-BODY, and a statement's value is its CONTROL:
 ; every clause here wraps side effects in (do ... ()) so an expression's
@@ -981,9 +1101,18 @@
     (match
       ((eq? tag (lit print)) (do (%awk-print! (rest stmt)) ()))
       ((eq? tag (lit printf))
-        (do (display
-              (%awk-sprintf (%awk-to-str (%awk-eval (first (rest stmt))))
-                (map (fn (_ a) (%awk-eval a)) (rest (rest stmt)))))
+        (do (display (%awk-printf-str (rest stmt))) ()))
+      ((eq? tag (lit printr))
+        (do (file-write
+              (%awk-out-fd! (%awk-to-str (%awk-eval (first (rest (rest stmt)))))
+                (first (rest stmt)))
+              (%awk-print-str (first (rest (rest (rest stmt))))))
+            ()))
+      ((eq? tag (lit printfr))
+        (do (file-write
+              (%awk-out-fd! (%awk-to-str (%awk-eval (first (rest (rest stmt)))))
+                (first (rest stmt)))
+              (%awk-printf-str (first (rest (rest (rest stmt))))))
             ()))
       ((eq? tag (lit expr)) (do (%awk-eval (first (rest stmt))) ()))
       ((eq? tag (lit block)) (%awk-exec-list (first (rest stmt))))
@@ -1075,9 +1204,12 @@
       ((eq? tag (lit break)) (list (lit break)))
       ((eq? tag (lit continue)) (list (lit continue)))
       ((eq? tag (lit exit))
-        (list (lit exit)
-          (if (null? (first (rest stmt))) 0
-            (%awk-to-num (%awk-eval (first (rest stmt)))))))
+        ; the status records here -- the ONE place exit's value is
+        ; known -- so every consumer of the control needs no plumbing
+        (let ((code (if (null? (first (rest stmt))) %awk-exit-code
+                      (%awk-trunc (%awk-to-num (%awk-eval (first (rest stmt))))))))
+          (set! %awk-exit-code code)
+          (list (lit exit) code)))
       ((eq? tag (lit return))
         (list (lit return)
           (if (null? (first (rest stmt))) ()
@@ -1125,27 +1257,95 @@
               (drop-last all)
               all)))))))
 
-; The record stream materializes on FIRST touch, not at run start: RS
-; assigned in BEGIN must govern the split, and getline in BEGIN must be
-; able to read -- both fall out of laziness and neither survives an
-; eager split.
-(def %awk-recs-force!
+; Stdin's text, read once.  Under the CLI the boot pipe occupies fd 0
+; and the caller's stdin waits on fd 3 (the platform's arrangement --
+; see lib/x/repl/loop.x); reclaiming is one dup2.  A second call in
+; either mode answers the cached text's leavings: text mode presets.
+(def %awk-stdin-content!
   (fn (_)
-    (if (eq? %awk-recs (lit unread))
-      (set! %awk-recs (%awk-records %awk-input))
-      ())))
+    (if (eq? %awk-stdin-mode (lit fd))
+      (do (sys-dup2 3 0)
+          (sys-close 3)
+          (let ((slurp ()))
+            (set! slurp
+              ; 4096-byte chunks, and the size is load-bearing:
+              ; make-string SEGFAULTS somewhere between 8K and 16K
+              ; (measured by bisection; reported upstream).
+              (fn (self acc)
+                (let ((chunk (file-read-fd 0 4096)))
+                  (if (if (string? chunk) (> (string-length chunk) 0) #f)
+                    (self (pair chunk acc))
+                    (string-concat (reverse acc))))))
+            (set! %awk-stdin-text (slurp ()))
+            (set! %awk-stdin-mode (lit text))
+            %awk-stdin-text))
+      %awk-stdin-text)))
+
+; A var=value operand: NAME then =, POSIX's assignment shape.
+(def %awk-assign-operand?
+  (fn (_ op)
+    (def end (string-length op))
+    (def go
+      (fn (self i)
+        (if (>= i end) #f
+          (let ((ci (char->integer (string-ref op i))))
+            (if (= ci 61) (> i 0)          ; =
+              (if (if (= i 0)
+                    (%awk-lex-name-start? ci)
+                    (%awk-lex-name-char? ci))
+                (self (+ i 1))
+                #f))))))
+    (go 0)))
+
+; Advance to the next input source: assignments apply as they are
+; reached (POSIX's in-order rule), a file operand opens with the
+; CURRENT RS, "-" is stdin, and when the operands run out having never
+; opened anything, stdin is the input.  FILENAME and FNR are per-file.
+(def %awk-advance-file!
+  (fn (self)
+    (if (null? %awk-operands)
+      (if %awk-any-file?
+        (set! %awk-recs (lit done))
+        (do (set! %awk-any-file? #t)
+            (%awk-var-set! "FILENAME" "")
+            (%awk-var-set! "FNR" 0)
+            (set! %awk-recs (%awk-records (%awk-stdin-content!)))))
+      (let ((op (first %awk-operands)))
+        (set! %awk-operands (rest %awk-operands))
+        (if (%awk-assign-operand? op)
+          (let ((eq-at (%awk-str-index op "=")))
+            (%awk-var-set! (substring op 0 (- eq-at 1))
+              (%awk-input-val (substring op eq-at (string-length op))))
+            (self))
+          (let ((content
+                  (if (string=? op "-")
+                    (%awk-stdin-content!)
+                    (if (file-exists? op)
+                      (file-read-all op)
+                      (Err raise (lit awk)
+                        (string-append "awk: can't open file " op) ())))))
+            (set! %awk-any-file? #t)
+            (%awk-var-set! "FILENAME" op)
+            (%awk-var-set! "FNR" 0)
+            (set! %awk-recs (%awk-records content))))))))
 
 ; One record off the stream: the symbol eof at exhaustion -- NOT nil,
 ; because "" is a legitimate record (RS=";" over "a;;b" has one in the
-; middle).  NR counts here; shared by the main loop and getline.
+; middle).  Materializes lazily (RS set in BEGIN applies; getline works
+; from BEGIN) and walks the operand queue file by file.  NR and FNR
+; count here; shared by the main loop and getline.
 (def %awk-next-record!
-  (fn (_)
-    (%awk-recs-force!)
-    (if (null? %awk-recs) (lit eof)
-      (let ((rec (first %awk-recs)))
-        (set! %awk-recs (rest %awk-recs))
-        (%awk-var-set! "NR" (+ 1 (%awk-to-num (%awk-var-get "NR"))))
-        rec))))
+  (fn (self)
+    (match
+      ((eq? %awk-recs (lit done)) (lit eof))
+      ((eq? %awk-recs (lit unread)) (do (%awk-advance-file!) (self)))
+      ((null? %awk-recs) (do (%awk-advance-file!) (self)))
+      (#t
+        (let ((rec (first %awk-recs)))
+          (set! %awk-recs (rest %awk-recs))
+          (%awk-var-set! "NR" (+ 1 (%awk-to-num (%awk-var-get "NR"))))
+          (%awk-var-set! "FNR" (+ 1 (%awk-to-num (%awk-var-get "FNR"))))
+          rec)))))
 
 (def %awk-rule-fires?
   (fn (_ pat)
@@ -1170,10 +1370,10 @@
           (if (eq? (first c) (lit next)) ()
             c))))))
 
-(def awk-run
-  (fn (_ prog input)
-    (def items (awk-parse prog))
-    ; reset EVERYTHING -- a raise in the previous run must not leak in
+; Reset EVERYTHING -- per-run state resets at the entry, never restores
+; at exits: a raise in the previous run must not leak in.
+(def %awk-reset!
+  (fn (_)
     (set! %awk-genv ())
     (set! %awk-f0 "")
     (set! %awk-fields ())
@@ -1184,6 +1384,8 @@
     (%awk-var-set! "RS" "\n")
     (%awk-var-set! "NR" 0)
     (%awk-var-set! "NF" 0)
+    (%awk-var-set! "FILENAME" "")
+    (%awk-var-set! "FNR" 0)
     ; SUBSEP: the multi-subscript joiner, \034 as everywhere else.
     (%awk-var-set! "SUBSEP" (list->string (list (integer->char 28))))
     (%awk-var-set! "OFMT" "%.6g")
@@ -1192,9 +1394,20 @@
     (%awk-var-set! "RLENGTH" (- 0 1))
     (set! %awk-seed 0)
     (set! %awk-rng (make-rng 0))
-    (set! %awk-input input)
     (set! %awk-recs (lit unread))
     (set! %awk-funcs ())
+    (set! %awk-operands ())
+    (set! %awk-any-file? #f)
+    (set! %awk-stdin-text "")
+    (set! %awk-stdin-mode (lit text))
+    (set! %awk-outs ())
+    (set! %awk-ins ())
+    (set! %awk-exit-code 0)))
+
+; The program itself: functions register, BEGIN runs, the record loop
+; walks the operand queue, END runs.  Answers the exit status.
+(def %awk-run-items
+  (fn (_ items)
     (def begins ())
     (def ends ())
     (def rules ())
@@ -1235,4 +1448,42 @@
                     (self)))))))
         (loop)))
     (%awk-exec-list ends)
+    %awk-exit-code))
+
+; The pure core: program text and input text in, print output to
+; stdout, redirection to real files.  What the specs drive.
+(def awk-run
+  (fn (_ prog input)
+    (def items (awk-parse prog))
+    (%awk-reset!)
+    (set! %awk-stdin-text input)
+    (%awk-run-items items)
+    (%awk-close-outs!)
     ()))
+
+; The CLI door: -F/-v applied ahead of BEGIN, ARGV/ARGC built, operands
+; queued, stdin read from the caller's fd on first need.  Answers the
+; exit status for awk-main to hand Sys exit.
+(def %awk-run-cli
+  (fn (_ prog fs assigns operands)
+    (def items (awk-parse prog))
+    (%awk-reset!)
+    (set! %awk-stdin-mode (lit fd))
+    (set! %awk-operands operands)
+    (unless (null? fs) (%awk-var-set! "FS" fs))
+    (map (fn (_ a)
+           (%awk-var-set! (first a) (%awk-input-val (rest a))))
+      assigns)
+    (def argv-arr (%awk-array-new))
+    (set-first! (%awk-arr-ref! argv-arr "0") "awk")
+    (def fill
+      (fn (self ops i)
+        (unless (null? ops)
+          (set-first! (%awk-arr-ref! argv-arr (%awk-int->str i)) (first ops))
+          (self (rest ops) (+ i 1)))))
+    (fill operands 1)
+    (%awk-var-set! "ARGV" argv-arr)
+    (%awk-var-set! "ARGC" (+ 1 (length operands)))
+    (def code (%awk-run-items items))
+    (%awk-close-outs!)
+    code))

@@ -21,6 +21,10 @@
 ; the builtin boundary (rational in, printed digits back to rational out).
 (import x/num/float)
 (import x/num/random)
+; The CLI front's doors: files, processes, and the exit.  These are the
+; radon capabilities the dialect row has reserved all along.
+(import x/sys/file)
+(import x/sys/proc)
 
 (provide awk/prims
   char->integer integer->char
@@ -29,7 +33,10 @@
   length reverse append map filter nth set-first!
   regex-compile regex-search regex-split regex-replace-all regex-find-at
   float-from float->string float-sin float-cos float-exp float-log
-  float-sqrt float-atan2 make-rng rng-int)
+  float-sqrt float-atan2 make-rng rng-int
+  file-open-write file-open-append file-close file-write
+  file-read-all file-read-fd file-exists? file-unlink
+  proc-run sys-exit sys-dup2 sys-close)
 
 ; THE DIRECT PRIMS, NOT THE CONVERT DISPATCHER, for the two casts the lexer
 ; makes per character: the dispatching version walks type alists and
@@ -101,3 +108,28 @@
 ; (Random sw seed) is deterministic xorshift; (rng int n) answers [0, n).
 (def make-rng (fn (_ seed) (Random sw seed)))
 (def rng-int (fn (_ r n) (r int n)))
+
+; --- Files, processes, the exit ----------------------------------------------
+(def file-open-write
+  (fn (_ path) (File open path (list (lit wronly) (lit creat) (lit trunc)))))
+(def file-open-append
+  (fn (_ path) (File open path (list (lit wronly) (lit creat) (lit append)))))
+(def file-close (fn (_ fd) (File close fd)))
+; (File read)/(File write) are the raw syscall shapes: read fills a
+; buffer you allocate and answers the byte COUNT (0 at EOF); write
+; wants an explicit size.  These wrappers speak strings.
+(def file-write
+  (fn (_ fd s) (File write fd s (string-length s))))
+(def file-read-all (fn (_ path) (File read-all path)))
+(def file-read-fd
+  (fn (_ fd n)
+    (def buf (make-string n (integer->char 0)))
+    (def r (File read fd buf n))
+    (if (if (number? r) (> r 0) #f) (substring buf 0 r) "")))
+(def file-exists? (fn (_ path) (File exists? path)))
+(def file-unlink (fn (_ path) (File unlink path)))
+; system(cmd) is the shell's reading of cmd, wait included.
+(def proc-run (fn (_ argv) (Proc run! argv)))
+(def sys-exit (fn (_ n) (Sys exit n)))
+(def sys-dup2 (fn (_ a b) (Sys dup2 a b)))
+(def sys-close (fn (_ fd) (Sys close fd)))

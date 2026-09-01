@@ -22,3 +22,14 @@
 (set! %lang-version awk-version)
 (set! %repl-prompt "awk> ")
 (set! %repl-print %awk-repl-print)
+
+; THE CLI: operands after the lang selection mean "be awk" --
+;
+;   x -l awk -- [-F ere] [-v a=v]... [-f prog.awk | 'program'] [file]...
+;
+; awk-main runs the program over the files (stdin when none) and EXITS,
+; so the launcher x.sh appends never starts a REPL underneath a batch
+; run.  No operands means the x REPL with the awk core loaded --
+; awk-run, awk-tokenize and friends at a prompt.
+(unless (null? (awk-argv args))
+  (awk-main args))

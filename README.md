@@ -23,23 +23,36 @@ expansion, writing through the same l-value door as assignment;
 atan2, exp, log, sqrt) on the platform's libm floats, converted back to
 rationals at the boundary so floats never enter the value model; and
 `rand`/`srand` on the platform's deterministic xorshift; `RS` including
-paragraph mode; `getline` and `getline var` from the main input (the
-record stream is lazy, so RS set in BEGIN governs the split and getline
-works from BEGIN); and user functions -- parameters as the only locals,
-arrays by reference, recursion, forward references.  The recorded gaps --
-file/pipe getline, redirection, command-line files -- live as pending
-specs in `tests/specs/04-divergences.spec.md`, not as promises.
+paragraph mode; `getline` and `getline var` from the main input and from
+files (`getline < "f"`); user functions -- parameters as the only locals,
+arrays by reference, recursion, forward references; output redirection
+(`print > f`, `>> f`), `close()`, `system()`; and the command line
+itself.  The recorded gap -- the two pipe forms, `"cmd" | getline` and
+`print | "cmd"` -- lives as a pending spec in
+`tests/specs/04-divergences.spec.md`, not as a promise.
 
 Paired with x-lang v0.9.0 (`lang.xon` is the checkable row).
 
 ## Try it
 
     make install        # into the x on PATH
-    x -l awk            # the awk core over an x REPL
 
-The pure core is `(awk-run PROGRAM-TEXT INPUT-TEXT)`: program in, input in,
-print output to stdout.  A real CLI front (`awk 'prog' file...`) arrives
-with getline and ARGV.
+    x -l awk -- [-F ere] [-v a=v]... [-f prog.awk | 'program'] [file | a=v]...
+
+    printf 'a b\nc d\n' | x -l awk '{print $2}'
+    x -l awk -- -F: '{print $1}' /etc/passwd
+    x -l awk 'BEGIN{exit 3}'; echo $?        # 3
+
+The `--` lets awk's own -F/-v/-f through x.sh's option parsing; without
+it, place options after the program text.  Files read in order (`-` is
+stdin, stdin is the default), `var=value` operands assign in sequence,
+FILENAME/FNR/ARGV/ARGC are live, and exit's status is the process's.
+`x -l awk` with no operands is the x REPL with the awk core loaded --
+`(awk-run PROGRAM-TEXT INPUT-TEXT)` is the pure core the suite drives.
+
+Pre-release honesty: the interpreter allocates heavily per record and
+the tower boots in seconds, so the practical ceiling is a few thousand
+records until a performance pass (and two reported engine limits) land.
 
 ## Tests
 
@@ -59,5 +72,6 @@ expectations.
     awk/parse.x       tokens -> AST, grammar only
     awk/eval.x        the AST's meaning: values, records, the run loop
     awk/fmt.x         the printf engine; OFMT/CONVFMT route through it
+    awk/cli.x         argv to a plan (pure), and awk-main (the exit)
     awk/printer.x     the lang's own write
     tests/            markdown specs + the platform's runner, vendored nowhere
