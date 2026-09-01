@@ -57,6 +57,80 @@
       (set! %awk-genv (pair (pair name (list v)) %awk-genv))
       (set-first! box v))))
 
+; --- Arrays ------------------------------------------------------------------
+; (array BOX) where BOX is a one-cell list holding ((keystr . vbox) ...),
+; newest first.  String-keyed by our own str=? scan -- the platform's Assoc
+; is identity-keyed.  POSIX semantics carried here: REFERENCING an element
+; creates it (uninit), `in` tests WITHOUT creating, subscripts are strings.
+
+(def %awk-array?
+  (fn (_ v) (if (pair? v) (eq? (first v) (lit array)) #f)))
+
+(def %awk-array-new (fn (_) (list (lit array) (list ()))))
+
+(def %awk-arr-box (fn (_ arr) (first (rest arr))))
+
+(def %awk-arr-entry
+  (fn (_ arr key)
+    (def go
+      (fn (self es)
+        (if (null? es) ()
+          (if (string=? (first (first es)) key)
+            (first es)
+            (self (rest es))))))
+    (go (first (%awk-arr-box arr)))))
+
+; The element's value box, created uninit when absent -- the POSIX
+; "mentioning a[k] makes it exist" rule, shared by get and set.
+(def %awk-arr-ref!
+  (fn (_ arr key)
+    (def e (%awk-arr-entry arr key))
+    (if (null? e)
+      (let ((box (%awk-arr-box arr)))
+        (def vbox (list ()))
+        (set-first! box (pair (pair key vbox) (first box)))
+        vbox)
+      (rest e))))
+
+(def %awk-arr-has?
+  (fn (_ arr key) (not (null? (%awk-arr-entry arr key)))))
+
+(def %awk-arr-del!
+  (fn (_ arr key)
+    (def box (%awk-arr-box arr))
+    (def go
+      (fn (self es)
+        (if (null? es) ()
+          (if (string=? (first (first es)) key)
+            (rest es)
+            (pair (first es) (self (rest es)))))))
+    (set-first! box (go (first box)))))
+
+(def %awk-arr-clear!
+  (fn (_ arr) (set-first! (%awk-arr-box arr) ())))
+
+(def %awk-arr-count
+  (fn (_ arr) (length (first (%awk-arr-box arr)))))
+
+; Keys in insertion order (entries prepend, so reverse).  for-in order is
+; unspecified by POSIX; insertion order is at least deterministic.
+(def %awk-arr-keys
+  (fn (_ arr) (reverse (map (fn (_ e) (first e)) (first (%awk-arr-box arr))))))
+
+; A variable in ARRAY position: uninit becomes a fresh array in place; a
+; scalar is a loud error, awk's own rule.
+(def %awk-var-array!
+  (fn (_ name)
+    (def v (%awk-var-get name))
+    (match
+      ((%awk-array? v) v)
+      ((null? v)
+        (let ((a (%awk-array-new)))
+          (%awk-var-set! name a)
+          a))
+      (#t (Err raise (lit awk)
+            (string-append "awk: " name " is a scalar, used as an array") ())))))
+
 ; --- Coercions ---------------------------------------------------------------
 
 (def %awk-strnum?
@@ -134,6 +208,8 @@
       ((null? v) 0)
       ((number? v) v)
       ((%awk-strnum? v) (first (rest (rest v))))
+      ((%awk-array? v)
+        (Err raise (lit awk) "awk: array used in scalar context" ()))
       (#t (first (%awk-str-prefix-num v))))))
 
 ; --- Number formatting: %.6g from exact values -------------------------------
@@ -196,6 +272,8 @@
       ((null? v) "")
       ((number? v) (%awk-num->str v))
       ((%awk-strnum? v) (first (rest v)))
+      ((%awk-array? v)
+        (Err raise (lit awk) "awk: array used in scalar context" ()))
       (#t v))))
 
 ; --- Truth and comparison ----------------------------------------------------
@@ -281,25 +359,60 @@
               (self en (pair (substring s st en) acc)))))))
     (go 0 ())))
 
+; Split text by a separator STRING, POSIX's three regimes.  An empty text
+; has no fields at all -- an empty record answers NF=0 whatever FS says,
+; and split("", a) answers 0.
+(def %awk-split-by
+  (fn (_ text fs)
+    (match
+      ((= (string-length text) 0) ())
+      ((string=? fs " ") (%awk-split-blanks text))
+      ((= (string-length fs) 1)
+        (%awk-split-char text (string-ref fs 0)))
+      (#t
+        (let ((rx (if (if (pair? %awk-fs-cache)
+                        (string=? (first %awk-fs-cache) fs) #f)
+                    (rest %awk-fs-cache)
+                    (let ((c (regex-compile fs)))
+                      (set! %awk-fs-cache (pair fs c))
+                      c))))
+          (regex-split text rx))))))
+
 (def %awk-split-record
   (fn (_ rec)
-    (def fs (%awk-to-str (%awk-var-get "FS")))
-    (def texts
-      (match
-        ((string=? fs " ") (%awk-split-blanks rec))
-        ((= (string-length fs) 1)
-          (if (= (string-length rec) 0) (list "")
-            (%awk-split-char rec (string-ref fs 0))))
-        (#t
-          (if (= (string-length rec) 0) (list "")
-            (let ((rx (if (if (pair? %awk-fs-cache)
-                            (string=? (first %awk-fs-cache) fs) #f)
-                        (rest %awk-fs-cache)
-                        (let ((c (regex-compile fs)))
-                          (set! %awk-fs-cache (pair fs c))
-                          c))))
-              (regex-split rec rx))))))
-    (map (fn (_ t) (%awk-input-val t)) texts)))
+    (map (fn (_ t) (%awk-input-val t))
+      (%awk-split-by rec (%awk-to-str (%awk-var-get "FS"))))))
+
+; split(s, a [, fs]) -- the array argument arrives as an AST node because
+; it passes BY NAME: the parser hands the nodes over unevaluated and this
+; is the one builtin that wants them so.  A /re/ third argument uses its
+; compiled regex; a string third argument follows the FS regimes; absent,
+; the current FS applies.
+(def %awk-split-call
+  (fn (_ arg-nodes)
+    (def s (%awk-to-str (%awk-eval (first arg-nodes))))
+    (def arr-node (first (rest arg-nodes)))
+    (if (not (eq? (first arr-node) (lit var)))
+      (Err raise (lit awk) "awk: split needs an array name" ())
+      (let ((arr (%awk-var-array! (first (rest arr-node)))))
+        (%awk-arr-clear! arr)
+        (def fs-node (if (null? (rest (rest arg-nodes))) ()
+                       (first (rest (rest arg-nodes)))))
+        (def texts
+          (match
+            ((null? fs-node)
+              (%awk-split-by s (%awk-to-str (%awk-var-get "FS"))))
+            ((eq? (first fs-node) (lit ere))
+              (if (= (string-length s) 0) ()
+                (regex-split s (first (rest fs-node)))))
+            (#t (%awk-split-by s (%awk-to-str (%awk-eval fs-node))))))
+        (def go
+          (fn (self ts i)
+            (if (null? ts) (- i 1)
+              (do (set-first! (%awk-arr-ref! arr (%awk-int->str i))
+                    (%awk-input-val (first ts)))
+                  (self (rest ts) (+ i 1))))))
+        (go texts 1)))))
 
 (def %awk-set-record!
   (fn (_ rec)
@@ -338,8 +451,11 @@
   (fn (_ name args)
     (match
       ((string=? name "length")
-        (string-length
-          (if (null? args) %awk-f0 (%awk-to-str (first args)))))
+        ; length(a) on an array is its element count (POSIX 2008).
+        (if (if (pair? args) (%awk-array? (first args)) #f)
+          (%awk-arr-count (first args))
+          (string-length
+            (if (null? args) %awk-f0 (%awk-to-str (first args))))))
       ((string=? name "index")
         (%awk-str-index (%awk-to-str (first args))
           (%awk-to-str (first (rest args)))))
@@ -373,17 +489,40 @@
       (first (rest node))
       (regex-compile (%awk-to-str (%awk-eval node))))))
 
+; One key from a subscript list: each subscript renders as a string, and
+; multiple join with SUBSEP -- POSIX's one-key reading of a[i,j].
+(def %awk-subs-key
+  (fn (_ subs)
+    (def texts (map (fn (_ e) (%awk-to-str (%awk-eval e))) subs))
+    (if (null? (rest texts))
+      (first texts)
+      (let ((sep (%awk-to-str (%awk-var-get "SUBSEP"))))
+        (def go
+          (fn (self ts)
+            (if (null? (rest ts)) (first ts)
+              (string-append (first ts) sep (self (rest ts))))))
+        (go texts)))))
+
 (def %awk-lval-get
   (fn (_ lv)
-    (if (eq? (first lv) (lit var))
-      (%awk-var-get (first (rest lv)))
-      (%awk-field-get (%awk-to-num (%awk-eval (first (rest lv))))))))
+    (match
+      ((eq? (first lv) (lit var)) (%awk-var-get (first (rest lv))))
+      ((eq? (first lv) (lit index))
+        (first (%awk-arr-ref! (%awk-var-array! (first (rest lv)))
+                 (%awk-subs-key (first (rest (rest lv)))))))
+      (#t (%awk-field-get (%awk-to-num (%awk-eval (first (rest lv)))))))))
 
 (def %awk-lval-set!
   (fn (_ lv v)
-    (if (eq? (first lv) (lit var))
-      (%awk-var-set! (first (rest lv)) v)
-      (Err raise (lit awk) "awk: assigning to a field is not built yet" lv))))
+    (match
+      ((eq? (first lv) (lit var)) (%awk-var-set! (first (rest lv)) v))
+      ((eq? (first lv) (lit index))
+        (set-first!
+          (%awk-arr-ref! (%awk-var-array! (first (rest lv)))
+            (%awk-subs-key (first (rest (rest lv)))))
+          v))
+      (#t (Err raise (lit awk)
+            "awk: assigning to a field is not built yet" lv)))))
 
 (def %awk-incr!
   (fn (_ lv delta pre?)
@@ -404,10 +543,21 @@
       ((eq? tag (lit var)) (%awk-var-get (first (rest node))))
       ((eq? tag (lit field))
         (%awk-field-get (%awk-to-num (%awk-eval (first (rest node))))))
+      ; a[k]: the shared l-value path -- which CREATES the element,
+      ; POSIX's rule for mentioning a subscript.
+      ((eq? tag (lit index)) (%awk-lval-get node))
+      ; (k in a): membership WITHOUT creating -- the counterpart rule.
+      ((eq? tag (lit in))
+        (let ((av (%awk-var-get (first (rest (rest node))))))
+          (%awk-bool
+            (if (%awk-array? av)
+              (%awk-arr-has? av (%awk-to-str (%awk-eval (first (rest node)))))
+              #f))))
       ((eq? tag (lit assign))
         (let ((v (%awk-eval (first (rest (rest node))))))
-          (%awk-lval-set! (first (rest node)) v)
-          v))
+          (if (%awk-array? v)
+            (Err raise (lit awk) "awk: an array cannot be assigned" ())
+            (do (%awk-lval-set! (first (rest node)) v) v))))
       ((eq? tag (lit bin))
         (let ((op (first (rest node))))
           (def a (%awk-to-num (%awk-eval (first (rest (rest node))))))
@@ -478,8 +628,11 @@
       ((eq? tag (lit predec)) (%awk-incr! (first (rest node)) (- 0 1) #t))
       ((eq? tag (lit postdec)) (%awk-incr! (first (rest node)) (- 0 1) #f))
       ((eq? tag (lit call))
-        (%awk-builtin (first (rest node))
-          (map (fn (_ a) (%awk-eval a)) (first (rest (rest node))))))
+        (let ((nm (first (rest node))))
+          (if (string=? nm "split")
+            (%awk-split-call (first (rest (rest node))))
+            (%awk-builtin nm
+              (map (fn (_ a) (%awk-eval a)) (first (rest (rest node))))))))
       (#t (Err raise (lit awk) "awk: unknown expression" tag)))))
 
 ; --- Statements --------------------------------------------------------------
@@ -571,6 +724,39 @@
                       (#t c)))
                   ())))
             (loop))))
+      ((eq? tag (lit for-in))
+        (let ((vname (first (rest stmt))))
+          (def av (%awk-var-get (first (rest (rest stmt)))))
+          (def body (first (rest (rest (rest stmt)))))
+          (match
+            ((null? av) ())   ; nothing to walk
+            ((%awk-array? av)
+              ; a SNAPSHOT of the keys: the body may delete or add
+              ; entries without disturbing this walk.  The key arrives
+              ; as input-shaped (strnum when numeric) -- k==10 works.
+              (let ((walk ()))
+                (set! walk
+                  (fn (self ks)
+                    (if (null? ks) ()
+                      (do (%awk-var-set! vname (%awk-input-val (first ks)))
+                          (let ((c (%awk-exec body)))
+                            (match
+                              ((null? c) (self (rest ks)))
+                              ((eq? (first c) (lit break)) ())
+                              ((eq? (first c) (lit continue)) (self (rest ks)))
+                              (#t c)))))))
+                (walk (%awk-arr-keys av))))
+            (#t (Err raise (lit awk)
+                  "awk: for-in over a scalar" ())))))
+      ((eq? tag (lit delete))
+        (do (let ((av (%awk-var-get (first (rest stmt)))))
+              (def subs (first (rest (rest stmt))))
+              (if (%awk-array? av)
+                (if (null? subs)
+                  (%awk-arr-clear! av)
+                  (%awk-arr-del! av (%awk-subs-key subs)))
+                ()))
+            ()))
       ((eq? tag (lit next)) (list (lit next)))
       ((eq? tag (lit break)) (list (lit break)))
       ((eq? tag (lit continue)) (list (lit continue)))
@@ -632,6 +818,8 @@
     (%awk-var-set! "ORS" "\n")
     (%awk-var-set! "NR" 0)
     (%awk-var-set! "NF" 0)
+    ; SUBSEP: the multi-subscript joiner, \034 as everywhere else.
+    (%awk-var-set! "SUBSEP" (list->string (list (integer->char 28))))
     (def begins ())
     (def ends ())
     (def rules ())

@@ -15,8 +15,10 @@
 ;   items:  (begin STMTS) (end STMTS) (rule PAT ACTION)
 ;           PAT () = every record; ACTION () = print $0
 ;   stmts:  (print ARGS) (if C T E) (while C B) (do B C) (for I C U B)
+;           (for-in VAR ARRAY B) (delete NAME SUBS|())
 ;           (block STMTS) (expr E) (next) (break) (continue) (exit E|())
 ;   exprs:  (num N) (str S) (ere RX) (var NAME) (field E)
+;           (index NAME SUBS) (in KEY ARRAYNAME)
 ;           (assign LV E) (ternary C A B) (or A B) (and A B)
 ;           (match A B) (nomatch A B) (cmp "op" A B) (concat A B)
 ;           (bin "op" A B) (neg E) (not E) (pow A B)
@@ -79,14 +81,17 @@
 
 ; --- Primary -----------------------------------------------------------------
 
-; l-value or not: assignment and ++/-- only land on (var _) or (field _).
+; l-value or not: assignment and ++/-- land on (var _), (field _), or an
+; array element (index _ _).
 (def %awk-p-lval?
   (fn (_ ast)
-    (if (eq? (first ast) (lit var)) #t (eq? (first ast) (lit field)))))
+    (if (eq? (first ast) (lit var)) #t
+      (if (eq? (first ast) (lit field)) #t
+        (eq? (first ast) (lit index))))))
 
 ; The builtins the parser recognises as calls.  `length` alone (no parens)
 ; is also legal awk and handled in primary.
-(def %awk-p-builtins (list "length" "substr" "index" "int"))
+(def %awk-p-builtins (list "length" "substr" "index" "int" "split"))
 
 (def %awk-p-builtin?
   (fn (_ s)
@@ -113,6 +118,22 @@
                 (%awk-p-err "expected , or ) in argument list" ts2)))))
         (loop toks ())))))
 
+; Subscript list: a[e] or a[e1, e2, ...]; ] consumed.  Multiple
+; subscripts join with SUBSEP at eval time -- POSIX's one-key reading.
+(def %awk-p-subs
+  (fn (_ toks)
+    (def loop ())
+    (set! loop
+      (fn (self ts acc)
+        (def r (%awk-p-expr ts #t))
+        (def ts2 (rest r))
+        (if (%awk-p-op? ts2 ",")
+          (self (%awk-p-skip-nl (rest ts2)) (pair (first r) acc))
+          (if (%awk-p-op? ts2 "]")
+            (pair (reverse (pair (first r) acc)) (rest ts2))
+            (%awk-p-err "expected , or ] in subscript" ts2)))))
+    (loop toks ())))
+
 (def %awk-p-primary
   (fn (_ toks gt)
     (if (null? toks) (%awk-p-err "expected an expression" toks)
@@ -126,12 +147,16 @@
               (rest toks)))
           ((eq? tag (lit name))
             (let ((nm (first (rest tok))))
-              (if (if (%awk-p-builtin? nm) (%awk-p-op? (rest toks) "(") #f)
-                (let ((r (%awk-p-args (rest (rest toks)))))
-                  (pair (list (lit call) nm (first r)) (rest r)))
-                (if (string=? nm "length")
-                  (pair (list (lit call) "length" ()) (rest toks))
-                  (pair (list (lit var) nm) (rest toks))))))
+              (match
+                ((if (%awk-p-builtin? nm) (%awk-p-op? (rest toks) "(") #f)
+                  (let ((r (%awk-p-args (rest (rest toks)))))
+                    (pair (list (lit call) nm (first r)) (rest r))))
+                ((%awk-p-op? (rest toks) "[")
+                  (let ((r (%awk-p-subs (rest (rest toks)))))
+                    (pair (list (lit index) nm (first r)) (rest r))))
+                ((string=? nm "length")
+                  (pair (list (lit call) "length" ()) (rest toks)))
+                (#t (pair (list (lit var) nm) (rest toks))))))
           ((%awk-p-op? toks "(")
             (let ((r (%awk-p-expr (%awk-p-skip-nl (rest toks)) #t)))
               (if (%awk-p-op? (rest r) ")")
@@ -279,15 +304,30 @@
     (def r (%awk-p-rel toks gt))
     (go (rest r) (first r))))
 
+; `k in a` -- array membership, looser than match, tighter than &&.
+; The right side is an array NAME, carried as a string.
+(def %awk-p-in
+  (fn (_ toks gt)
+    (def go
+      (fn (self ts left)
+        (if (%awk-p-kw? ts (lit in))
+          (if (eq? (%awk-p-tag (rest ts)) (lit name))
+            (self (rest (rest ts))
+              (list (lit in) left (first (rest (first (rest ts))))))
+            (%awk-p-err "expected an array name after in" ts))
+          (pair left ts))))
+    (def r (%awk-p-match toks gt))
+    (go (rest r) (first r))))
+
 (def %awk-p-and
   (fn (_ toks gt)
     (def go
       (fn (self ts left)
         (if (%awk-p-op? ts "&&")
-          (let ((r (%awk-p-match (%awk-p-skip-nl (rest ts)) gt)))
+          (let ((r (%awk-p-in (%awk-p-skip-nl (rest ts)) gt)))
             (self (rest r) (list (lit and) left (first r))))
           (pair left ts))))
-    (def r (%awk-p-match toks gt))
+    (def r (%awk-p-in toks gt))
     (go (rest r) (first r))))
 
 (def %awk-p-or
@@ -374,6 +414,30 @@
 (def %awk-p-body
   (fn (_ toks) (%awk-p-stmt (%awk-p-skip-nl toks))))
 
+; The C-style for ladder: init ; cond ; update, each part optional.
+; The caller has consumed `for (` and ruled out the for-in shape.
+(def %awk-p-for-c
+  (fn (_ ts)
+    (def init (if (%awk-p-op? ts ";") (pair () ts)
+                (%awk-p-expr ts #t)))
+    (if (%awk-p-op? (rest init) ";")
+      (let ((ts2 (%awk-p-skip-nl (rest (rest init)))))
+        (def c (if (%awk-p-op? ts2 ";") (pair () ts2)
+                 (%awk-p-expr ts2 #t)))
+        (if (%awk-p-op? (rest c) ";")
+          (let ((ts3 (%awk-p-skip-nl (rest (rest c)))))
+            (def u (if (%awk-p-op? ts3 ")") (pair () ts3)
+                     (%awk-p-expr ts3 #t)))
+            (if (%awk-p-op? (rest u) ")")
+              (let ((b (%awk-p-body (rest (rest u)))))
+                (pair
+                  (list (lit for) (first init) (first c) (first u)
+                    (first b))
+                  (rest b)))
+              (%awk-p-err "expected ) in for" (rest u))))
+          (%awk-p-err "expected second ; in for" (rest c))))
+      (%awk-p-err "expected ; in for" (rest init)))))
+
 (set! %awk-p-stmt
   (fn (_ toks)
     (match
@@ -415,27 +479,33 @@
       ((%awk-p-kw? toks (lit for))
         (if (%awk-p-op? (rest toks) "(")
           (let ((ts (rest (rest toks))))
-            ; init ; cond ; update -- each may be empty
-            (def init (if (%awk-p-op? ts ";") (pair () ts)
-                        (%awk-p-expr ts #t)))
-            (if (%awk-p-op? (rest init) ";")
-              (let ((ts2 (%awk-p-skip-nl (rest (rest init)))))
-                (def c (if (%awk-p-op? ts2 ";") (pair () ts2)
-                         (%awk-p-expr ts2 #t)))
-                (if (%awk-p-op? (rest c) ";")
-                  (let ((ts3 (%awk-p-skip-nl (rest (rest c)))))
-                    (def u (if (%awk-p-op? ts3 ")") (pair () ts3)
-                             (%awk-p-expr ts3 #t)))
-                    (if (%awk-p-op? (rest u) ")")
-                      (let ((b (%awk-p-body (rest (rest u)))))
-                        (pair
-                          (list (lit for) (first init) (first c) (first u)
-                            (first b))
-                          (rest b)))
-                      (%awk-p-err "expected ) in for" (rest u))))
-                  (%awk-p-err "expected second ; in for" (rest c))))
-              (%awk-p-err "expected ; in for" (rest init))))
+            ; for (NAME in NAME) is its own statement -- peek the exact
+            ; four-token shape before committing to the C-style ladder.
+            (def t2 (rest ts))
+            (def t3 (if (pair? t2) (rest t2) ()))
+            (def t4 (if (pair? t3) (rest t3) ()))
+            (if (if (eq? (%awk-p-tag ts) (lit name))
+                  (if (%awk-p-kw? t2 (lit in))
+                    (if (eq? (%awk-p-tag t3) (lit name))
+                      (%awk-p-op? t4 ")") #f) #f) #f)
+              (let ((b (%awk-p-body (rest t4))))
+                (pair
+                  (list (lit for-in)
+                    (first (rest (first ts)))
+                    (first (rest (first t3)))
+                    (first b))
+                  (rest b)))
+              (%awk-p-for-c ts)))
           (%awk-p-err "expected ( after for" (rest toks))))
+      ((%awk-p-kw? toks (lit delete))
+        (if (eq? (%awk-p-tag (rest toks)) (lit name))
+          (let ((nm (first (rest (first (rest toks))))))
+            (def ts (rest (rest toks)))
+            (if (%awk-p-op? ts "[")
+              (let ((r (%awk-p-subs (rest ts))))
+                (pair (list (lit delete) nm (first r)) (rest r)))
+              (pair (list (lit delete) nm ()) ts)))
+          (%awk-p-err "expected an array name after delete" (rest toks))))
       ((%awk-p-kw? toks (lit next)) (pair (list (lit next)) (rest toks)))
       ((%awk-p-kw? toks (lit break)) (pair (list (lit break)) (rest toks)))
       ((%awk-p-kw? toks (lit continue))

@@ -48,12 +48,6 @@ differs; sub/gsub extraction will, once built.
 (awk-run "BEGIN{printf \"%d\\n\", 42}" "")
 ```
 
-### arrays, split, for-in, delete
-
-```awk
-(awk-run "BEGIN{a[1]=2; print a[1]}" "")
-```
-
 ### field assignment rebuilds the record
 
 ```awk
