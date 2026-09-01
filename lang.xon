@@ -1,0 +1,30 @@
+; lang.xon -- what this bundle IS.
+;
+; xon: read with the ordinary reader and never evaluated, like every other
+; manifest in the x-lang world (pin.xon, engine.pin.xon).  A form a reader
+; does not know is a loud error, never a skip.
+;
+; FORMAT (one form per line):
+;   (lang "NAME")               the -l name
+;   (dialect NAME)              he | xe | rn -- a REQUIREMENT, not a taste
+;   (requires-release "TAG")    the x-lang this bundle was built against
+;   (entry "FILE")              loaded AFTER the dialect, not instead of it
+
+(lang "awk")
+
+; RADON, determined by where this bundle is GOING rather than where it is.
+; The core is deliberately pure -- program text in, output text out, which is
+; what makes the suite trivial to write -- but an awk is not an awk until it
+; reads files named on the command line, runs `cmd | getline`, and honours
+; system(); every one of those is a Sys door, and Sys's process and file
+; doors are radon opt-ins.  Declaring lighter now would mean re-declaring at
+; the first getline, and a dialect row that changes per release is a row
+; nobody can rely on.
+(dialect rn)
+
+; PAIRING, NOT PINNING.  This row tracks what the specs are green AGAINST.
+; v0.9.0 is the release current when the bundle was scaffolded; nothing here
+; is known to need newer.
+(requires-release "v0.9.0")
+
+(entry "run.x")
