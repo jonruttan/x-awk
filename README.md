@@ -10,11 +10,14 @@ fields and NR/NF/FS/OFS/ORS, exact-rational arithmetic with awk's %.6g
 output formatting, ERE patterns and `~`/`!~` (on `lib/x/type/regex.x`,
 compiled at parse time), strnum comparison semantics, `print`, control flow
 (`if`/`else`, `while`, `do`, `for`, `next`, `exit`, `break`, `continue`),
-`length`/`substr`/`index`/`int`, and arrays: string-keyed with POSIX's
-paired creation rules (referencing creates, `in` does not), `for (k in a)`,
+`length`/`substr`/`index`/`int`; arrays: string-keyed with POSIX's paired
+creation rules (referencing creates, `in` does not), `for (k in a)`,
 `delete`, multi-subscripts through SUBSEP, and `split()` with string, FS,
-or ERE separators.  The recorded gaps -- printf, getline, redirection,
-field assignment, user functions, gsub -- live as pending specs in
+or ERE separators; and `printf`/`sprintf`: the full conversion set
+(d i o x X u c s f e E g G %%) with flags, width, precision and `*`, every
+digit from exact integer arithmetic, with OFMT and CONVFMT wired through
+the same engine.  The recorded gaps -- getline, redirection, field
+assignment, user functions, gsub -- live as pending specs in
 `tests/specs/04-divergences.spec.md`, not as promises.
 
 Paired with x-lang v0.9.0 (`lang.xon` is the checkable row).
@@ -45,5 +48,6 @@ expectations.
     awk/lex.x         program text -> tokens (a string scanner; see base.x)
     awk/parse.x       tokens -> AST, grammar only
     awk/eval.x        the AST's meaning: values, records, the run loop
+    awk/fmt.x         the printf engine; OFMT/CONVFMT route through it
     awk/printer.x     the lang's own write
     tests/            markdown specs + the platform's runner, vendored nowhere

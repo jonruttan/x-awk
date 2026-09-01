@@ -17,16 +17,25 @@ The core is exact-rational; C awk is IEEE doubles.  This bundle answers 1
 (the mathematically true reading), one-true-awk answers 0.  Settle which
 contract x-awk ships before graduating this.
 
-## %.6g e-notation
+## rounding
 
-### very large and very small non-integral values should shift to e-notation
+### %.0f of 2.5: half-up here, half-even on C doubles
 
 ```awk
-(awk-run "BEGIN{print 0.0000001}" "")
+(awk-run "BEGIN{printf \"%.0f\\n\", 2.5}" "")
 ```
 
-C awk prints 1e-07 (%.6g shifts when the exponent leaves [-4, 6));
-%awk-num->str renders plain decimals only.
+The exact engine rounds half-up (3); C awk's doubles round half-even (2).
+POSIX mandates neither.  Settle the contract before graduating.
+
+### %x of a negative: sign-prefixed here, unsigned-wrapped in C
+
+```awk
+(awk-run "BEGIN{printf \"%x\\n\", -1}" "")
+```
+
+C awk casts through unsigned long (ffffffffffffffff); the exact engine
+has no word size to wrap at and prints -1.
 
 ## leftmost-longest
 
@@ -41,12 +50,6 @@ POSIX awk requires leftmost-LONGEST.  Matching (not extraction) rarely
 differs; sub/gsub extraction will, once built.
 
 ## not built yet, loudly
-
-### printf and sprintf
-
-```awk
-(awk-run "BEGIN{printf \"%d\\n\", 42}" "")
-```
 
 ### field assignment rebuilds the record
 

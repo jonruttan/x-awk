@@ -233,38 +233,16 @@
           (string-append "-" (list->string (go (- 0 n) ())))
           (list->string (go n ())))))))
 
-; Fractional rendering: up to 6 decimals, round-half-up, trailing zeros
-; stripped.  (%.6g additionally shifts to e-notation for very large and
-; very small values; that case is a recorded pending spec, not silent.)
+; Number to string: integral values are always plain integers (POSIX);
+; everything else goes through the printf engine with CONVFMT -- %.6g by
+; default, e-notation included.  The engine lives in awk/fmt.x; the
+; reference resolves at call time, so file order does not matter.
 (def %awk-num->str
   (fn (_ n)
     (if (= 0 (% n 1))
       (%awk-int->str n)
-      (let ((neg (< n 0)))
-        (def a (if neg (- 0 n) n))
-        (def i (%awk-trunc a))
-        (def scaled (* (- a i) 1000000))
-        (def d (%awk-trunc (+ scaled (/ 1 2))))
-        (def i2 (if (= d 1000000) (+ i 1) i))
-        (def d2 (if (= d 1000000) 0 d))
-        (if (= d2 0)
-          (%awk-int->str (if neg (- 0 i2) i2))
-          (let ((strip ()))
-            (set! strip
-              (fn (self t k)
-                (if (= 0 (% t 10)) (self (/ (- t (% t 10)) 10) (- k 1))
-                  (pair t k))))
-            (def sk (strip d2 6))
-            (def digits (%awk-int->str (first sk)))
-            (def pad
-              (fn (self m)
-                (if (<= m 0) "" (string-append "0" (self (- m 1))))))
-            (string-append
-              (if neg "-" "")
-              (%awk-int->str i2)
-              "."
-              (pad (- (rest sk) (string-length digits)))
-              digits)))))))
+      (let ((f (%awk-var-get "CONVFMT")))
+        (%awk-sprintf (if (null? f) "%.6g" (%awk-to-str f)) (list n))))))
 
 (def %awk-to-str
   (fn (_ v)
@@ -459,6 +437,8 @@
       ((string=? name "index")
         (%awk-str-index (%awk-to-str (first args))
           (%awk-to-str (first (rest args)))))
+      ((string=? name "sprintf")
+        (%awk-sprintf (%awk-to-str (first args)) (rest args)))
       ((string=? name "int")
         (%awk-trunc (%awk-to-num (first args))))
       ((string=? name "substr")
@@ -647,6 +627,18 @@
       (let ((c (%awk-exec (first stmts))))
         (if (null? c) (self (rest stmts)) c)))))
 
+; What print shows for a value: like %awk-to-str, but a non-integral
+; number renders through OFMT where conversions use CONVFMT -- POSIX's
+; one deliberate asymmetry between output and conversion.
+(def %awk-out-str
+  (fn (_ v)
+    (if (number? v)
+      (if (= 0 (% v 1))
+        (%awk-int->str v)
+        (let ((f (%awk-var-get "OFMT")))
+          (%awk-sprintf (if (null? f) "%.6g" (%awk-to-str f)) (list v))))
+      (%awk-to-str v))))
+
 (def %awk-print!
   (fn (_ args)
     (def ofs (%awk-to-str (%awk-var-get "OFS")))
@@ -654,7 +646,7 @@
       (fn (self as first?)
         (unless (null? as)
           (unless first? (display ofs))
-          (display (%awk-to-str (%awk-eval (first as))))
+          (display (%awk-out-str (%awk-eval (first as))))
           (self (rest as) #f))))
     (if (null? args)
       (display %awk-f0)
@@ -671,6 +663,11 @@
     (def tag (first stmt))
     (match
       ((eq? tag (lit print)) (do (%awk-print! (rest stmt)) ()))
+      ((eq? tag (lit printf))
+        (do (display
+              (%awk-sprintf (%awk-to-str (%awk-eval (first (rest stmt))))
+                (map (fn (_ a) (%awk-eval a)) (rest (rest stmt)))))
+            ()))
       ((eq? tag (lit expr)) (do (%awk-eval (first (rest stmt))) ()))
       ((eq? tag (lit block)) (%awk-exec-list (first (rest stmt))))
       ((eq? tag (lit if))
@@ -820,6 +817,8 @@
     (%awk-var-set! "NF" 0)
     ; SUBSEP: the multi-subscript joiner, \034 as everywhere else.
     (%awk-var-set! "SUBSEP" (list->string (list (integer->char 28))))
+    (%awk-var-set! "OFMT" "%.6g")
+    (%awk-var-set! "CONVFMT" "%.6g")
     (def begins ())
     (def ends ())
     (def rules ())

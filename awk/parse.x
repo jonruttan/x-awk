@@ -14,7 +14,8 @@
 ; THE AST (what the parser specs assert):
 ;   items:  (begin STMTS) (end STMTS) (rule PAT ACTION)
 ;           PAT () = every record; ACTION () = print $0
-;   stmts:  (print ARGS) (if C T E) (while C B) (do B C) (for I C U B)
+;   stmts:  (print ARGS) (printf ARGS) (if C T E) (while C B) (do B C)
+;           (for I C U B)
 ;           (for-in VAR ARRAY B) (delete NAME SUBS|())
 ;           (block STMTS) (expr E) (next) (break) (continue) (exit E|())
 ;   exprs:  (num N) (str S) (ere RX) (var NAME) (field E)
@@ -91,7 +92,8 @@
 
 ; The builtins the parser recognises as calls.  `length` alone (no parens)
 ; is also legal awk and handled in primary.
-(def %awk-p-builtins (list "length" "substr" "index" "int" "split"))
+(def %awk-p-builtins
+  (list "length" "substr" "index" "int" "split" "sprintf"))
 
 (def %awk-p-builtin?
   (fn (_ s)
@@ -449,6 +451,11 @@
       ((%awk-p-kw? toks (lit print))
         (let ((r (%awk-p-print-args (rest toks))))
           (pair (pair (lit print) (first r)) (rest r))))
+      ((%awk-p-kw? toks (lit printf))
+        (let ((r (%awk-p-print-args (rest toks))))
+          (if (null? (first r))
+            (%awk-p-err "printf needs a format string" toks)
+            (pair (pair (lit printf) (first r)) (rest r)))))
       ((%awk-p-kw? toks (lit if))
         (let ((c (%awk-p-cond (rest toks) "if")))
           (def t (%awk-p-body (rest c)))

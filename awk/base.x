@@ -33,3 +33,4 @@
 (include-once "./lex.x")
 (include-once "./parse.x")
 (include-once "./eval.x")
+(include-once "./fmt.x")
