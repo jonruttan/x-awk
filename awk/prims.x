@@ -57,6 +57,7 @@
 ; byte-oriented tool, so bytes are the honest unit anyway.
 (def byte-at (prim-ref (lit str) (lit byte-ref)))
 (def byte-len (prim-ref (lit str) (lit byte-len)))
+(def %str-make-raw (prim-ref (lit str) (lit make)))
 ; Scheme's substring is [start, end); Str8 sub is (start, LENGTH).
 (def substring (fn (_ s a b) (Str8 sub a (- b a) s)))
 (def string=? (fn (_ a b) (str=? a b)))
@@ -132,7 +133,13 @@
 (def file-read-all (fn (_ path) (File read-all path)))
 (def file-read-fd
   (fn (_ fd n)
-    (def buf (make-string n (integer->char 0)))
+    ; %str-make-raw is the engine's ALLOCATION door (make-str): n writable
+    ; bytes, space-filled, NUL-terminated.  Str8 make with a NUL fill is
+    ; NOT that door: strings are C strings, so a NUL-filled string is ""
+    ; -- a 1-byte buffer the raw read then writes n bytes into (the
+    ; 2026-09-01 stdin heap corruption; File read is a raw syscall, so
+    ; nothing catches the overrun).
+    (def buf (%str-make-raw n))
     (def r (File read fd buf n))
     (if (if (number? r) (> r 0) #f) (substring buf 0 r) "")))
 (def file-exists? (fn (_ path) (File exists? path)))
