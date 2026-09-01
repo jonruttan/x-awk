@@ -51,12 +51,6 @@ differs; sub/gsub extraction will, once built.
 
 ## not built yet, loudly
 
-### field assignment rebuilds the record
-
-```awk
-(awk-run "{$1=\"x\"; print}" "a b\n")
-```
-
 ### getline, redirection, system, command-line files
 
 ```awk
@@ -69,10 +63,10 @@ differs; sub/gsub extraction will, once built.
 (awk-run "function f(x){return x+1} BEGIN{print f(1)}" "")
 ```
 
-### sub, gsub, sprintf, toupper, tolower, sin and friends
+### toupper, tolower, match, and the math functions
 
 ```awk
-(awk-run "BEGIN{s=\"aa\"; gsub(/a/,\"b\",s); print s}" "")
+(awk-run "BEGIN{print toupper(\"ab\")}" "")
 ```
 
 ### RS: custom record separators

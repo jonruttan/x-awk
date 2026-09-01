@@ -22,7 +22,7 @@
   string-length string-ref substring string-append string-concat
   string=? string? make-string list->string convert
   length reverse append map filter nth set-first!
-  regex-compile regex-search regex-split regex-replace-all)
+  regex-compile regex-search regex-split regex-replace-all regex-find-at)
 
 ; THE DIRECT PRIMS, NOT THE CONVERT DISPATCHER, for the two casts the lexer
 ; makes per character: the dispatching version walks type alists and
@@ -77,3 +77,4 @@
 (def regex-search (fn (_ s rx) (Regex search s rx)))
 (def regex-split (fn (_ s rx) (Regex split s rx)))
 (def regex-replace-all (fn (_ s rep rx) (Regex replace-all s rep rx)))
+(def regex-find-at (fn (_ s pos rx) (Regex find-at s pos rx)))

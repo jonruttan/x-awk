@@ -392,6 +392,74 @@
                   (self (rest ts) (+ i 1))))))
         (go texts 1)))))
 
+; sub(re, repl [, target]) and gsub -- replace in place, answer the count.
+; The target passes BY NAME like split's array: it must be an l-value
+; (default $0), and the write goes through %awk-lval-set!, so a field
+; target rebuilds $0 exactly as a plain field assignment would.  In repl,
+; & is the matched text, \& a literal &, \\ a backslash -- awk's rules,
+; NOT the $N expansion Regex replace-all carries, which is why the loop
+; lives here instead of riding that method.
+(def %awk-sub-expand
+  (fn (_ repl matched)
+    (def end (string-length repl))
+    (def go
+      (fn (self i acc)
+        (if (>= i end) (string-concat (reverse acc))
+          (let ((c (string-ref repl i)))
+            (match
+              ((= c #\&) (self (+ i 1) (pair matched acc)))
+              ((if (= c #\\) (< (+ i 1) end) #f)
+                (let ((e (string-ref repl (+ i 1))))
+                  (if (if (= e #\&) #t (= e #\\))
+                    (self (+ i 2) (pair (substring repl (+ i 1) (+ i 2)) acc))
+                    (self (+ i 1) (pair "\\" acc)))))
+              (#t (self (+ i 1) (pair (substring repl i (+ i 1)) acc))))))))
+    (go 0 ())))
+
+(def %awk-sub-call
+  (fn (_ global? nodes)
+    (def rx (%awk-match-rx (first nodes)))
+    (def repl (%awk-to-str (%awk-eval (first (rest nodes)))))
+    (def target
+      (if (null? (rest (rest nodes)))
+        (list (lit field) (list (lit num) 0))
+        (first (rest (rest nodes)))))
+    (if (not (%awk-p-lval? target))
+      (Err raise (lit awk) "awk: sub/gsub target must be assignable" ())
+      (let ((s (%awk-to-str (%awk-lval-get target))))
+        (def len (string-length s))
+        ; An empty match replaces, keeps the next character, and steps
+        ; past it -- gsub(/x*/, "-", "abc") is "-a-b-c-", count 4.
+        (def go
+          (fn (self pos pieces count)
+            (def m (if (> pos len) () (regex-find-at s pos rx)))
+            (if (null? m)
+              (pair count
+                (string-concat
+                  (reverse (pair (substring s pos len) pieces))))
+              (let ((st (first m)))
+                (def en (first (rest m)))
+                (def hit
+                  (pair (%awk-sub-expand repl (substring s st en))
+                    (pair (substring s pos st) pieces)))
+                (match
+                  ((not global?)
+                    (pair (+ count 1)
+                      (string-concat
+                        (reverse (pair (substring s en len) hit)))))
+                  ((= st en)
+                    (if (>= en len)
+                      (pair (+ count 1) (string-concat (reverse hit)))
+                      (self (+ en 1)
+                        (pair (substring s en (+ en 1)) hit)
+                        (+ count 1))))
+                  (#t (self en hit (+ count 1))))))))
+        (def r (go 0 () 0))
+        (if (> (first r) 0)
+          (%awk-lval-set! target (rest r))
+          ())
+        (first r)))))
+
 (def %awk-set-record!
   (fn (_ rec)
     (set! %awk-f0 rec)
@@ -406,6 +474,67 @@
       ((< i 0) (Err raise (lit awk) "awk: negative field index" i))
       ((> i (length %awk-fields)) ())
       (#t (nth (- i 1) %awk-fields)))))
+
+; --- Field assignment --------------------------------------------------------
+; POSIX's rebuild rules: assigning any $i (or NF) reconstructs $0 by
+; joining the fields with OFS at that moment; assigning past NF fills the
+; gap with empty strings; assigning $0 re-splits per FS.  The assigned
+; VALUE is stored as it is -- a number stays a number, and renders through
+; CONVFMT only when $0 is rebuilt.
+
+(def %awk-join-fields
+  (fn (_ vals ofs)
+    (def go
+      (fn (self vs)
+        (if (null? vs) ()
+          (pair (%awk-to-str (first vs))
+            (if (null? (rest vs)) ()
+              (pair ofs (self (rest vs))))))))
+    (string-concat (go vals))))
+
+(def %awk-rebuild-record!
+  (fn (_)
+    (set! %awk-f0
+      (%awk-join-fields %awk-fields (%awk-to-str (%awk-var-get "OFS"))))
+    (%awk-var-set! "NF" (length %awk-fields))))
+
+; The field list with slot i (1-based) holding v, gaps filled with "".
+(def %awk-fields-put
+  (fn (_ lst i v)
+    (def go
+      (fn (self l k)
+        (if (= k 1)
+          (pair v (if (null? l) () (rest l)))
+          (pair (if (null? l) "" (first l))
+            (self (if (null? l) () (rest l)) (- k 1))))))
+    (go lst i)))
+
+; The field list resized to exactly n slots, "" filling any growth.
+(def %awk-fields-resize
+  (fn (_ lst n)
+    (def go
+      (fn (self l k)
+        (if (<= k 0) ()
+          (pair (if (null? l) "" (first l))
+            (self (if (null? l) () (rest l)) (- k 1))))))
+    (go lst n)))
+
+(def %awk-field-set!
+  (fn (_ idx v)
+    (def i (%awk-trunc idx))
+    (match
+      ((< i 0) (Err raise (lit awk) "awk: negative field index" i))
+      ((= i 0) (%awk-set-record! (%awk-to-str v)))
+      (#t
+        (do (set! %awk-fields (%awk-fields-put %awk-fields i v))
+            (%awk-rebuild-record!))))))
+
+(def %awk-set-nf!
+  (fn (_ n)
+    (if (< n 0)
+      (Err raise (lit awk) "awk: NF set negative" n)
+      (do (set! %awk-fields (%awk-fields-resize %awk-fields n))
+          (%awk-rebuild-record!)))))
 
 ; --- Builtins ----------------------------------------------------------------
 
@@ -495,14 +624,17 @@
 (def %awk-lval-set!
   (fn (_ lv v)
     (match
-      ((eq? (first lv) (lit var)) (%awk-var-set! (first (rest lv)) v))
+      ((eq? (first lv) (lit var))
+        ; NF is live: assigning it resizes the fields and rebuilds $0.
+        (if (string=? (first (rest lv)) "NF")
+          (%awk-set-nf! (%awk-trunc (%awk-to-num v)))
+          (%awk-var-set! (first (rest lv)) v)))
       ((eq? (first lv) (lit index))
         (set-first!
           (%awk-arr-ref! (%awk-var-array! (first (rest lv)))
             (%awk-subs-key (first (rest (rest lv)))))
           v))
-      (#t (Err raise (lit awk)
-            "awk: assigning to a field is not built yet" lv)))))
+      (#t (%awk-field-set! (%awk-to-num (%awk-eval (first (rest lv)))) v)))))
 
 (def %awk-incr!
   (fn (_ lv delta pre?)
@@ -609,10 +741,16 @@
       ((eq? tag (lit postdec)) (%awk-incr! (first (rest node)) (- 0 1) #f))
       ((eq? tag (lit call))
         (let ((nm (first (rest node))))
-          (if (string=? nm "split")
-            (%awk-split-call (first (rest (rest node))))
-            (%awk-builtin nm
-              (map (fn (_ a) (%awk-eval a)) (first (rest (rest node))))))))
+          (match
+            ((string=? nm "split")
+              (%awk-split-call (first (rest (rest node)))))
+            ((string=? nm "sub")
+              (%awk-sub-call #f (first (rest (rest node)))))
+            ((string=? nm "gsub")
+              (%awk-sub-call #t (first (rest (rest node)))))
+            (#t
+              (%awk-builtin nm
+                (map (fn (_ a) (%awk-eval a)) (first (rest (rest node)))))))))
       (#t (Err raise (lit awk) "awk: unknown expression" tag)))))
 
 ; --- Statements --------------------------------------------------------------

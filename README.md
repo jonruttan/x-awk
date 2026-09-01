@@ -13,11 +13,14 @@ compiled at parse time), strnum comparison semantics, `print`, control flow
 `length`/`substr`/`index`/`int`; arrays: string-keyed with POSIX's paired
 creation rules (referencing creates, `in` does not), `for (k in a)`,
 `delete`, multi-subscripts through SUBSEP, and `split()` with string, FS,
-or ERE separators; and `printf`/`sprintf`: the full conversion set
+or ERE separators; `printf`/`sprintf`: the full conversion set
 (d i o x X u c s f e E g G %%) with flags, width, precision and `*`, every
 digit from exact integer arithmetic, with OFMT and CONVFMT wired through
-the same engine.  The recorded gaps -- getline, redirection, field
-assignment, user functions, gsub -- live as pending specs in
+the same engine; field assignment with the POSIX rebuild rules ($i and NF
+rebuild $0 through OFS, $0 re-splits per FS); and `sub`/`gsub` with &
+expansion, writing through the same l-value door as assignment.  The
+recorded gaps -- getline, redirection, user functions, toupper/tolower
+and the math set, RS -- live as pending specs in
 `tests/specs/04-divergences.spec.md`, not as promises.
 
 Paired with x-lang v0.9.0 (`lang.xon` is the checkable row).
