@@ -37,6 +37,17 @@ POSIX mandates neither.  Settle the contract before graduating.
 C awk casts through unsigned long (ffffffffffffffff); the exact engine
 has no word size to wrap at and prints -1.
 
+### math results tail to zeros past ten significant digits
+
+```awk
+(awk-run "BEGIN{printf \"%.12f\\n\", sqrt(2)}" "")
+```
+
+C awk prints 1.414213562373; the float boundary caps its rationals at
+ten significant digits (1.414213562000) because the engine's rational
+arithmetic corrupts beyond ~1e13-denominator operands -- see the
+%awk-float->rat comment.  Lift the cap when the engine is fixed.
+
 ## leftmost-longest
 
 ### POSIX ERE wants the longest match at the leftmost position
@@ -61,12 +72,6 @@ differs; sub/gsub extraction will, once built.
 
 ```awk
 (awk-run "function f(x){return x+1} BEGIN{print f(1)}" "")
-```
-
-### toupper, tolower, match, and the math functions
-
-```awk
-(awk-run "BEGIN{print toupper(\"ab\")}" "")
 ```
 
 ### RS: custom record separators

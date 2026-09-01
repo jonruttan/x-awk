@@ -93,7 +93,9 @@
 ; The builtins the parser recognises as calls.  `length` alone (no parens)
 ; is also legal awk and handled in primary.
 (def %awk-p-builtins
-  (list "length" "substr" "index" "int" "split" "sprintf" "sub" "gsub"))
+  (list "length" "substr" "index" "int" "split" "sprintf" "sub" "gsub"
+        "match" "toupper" "tolower" "sin" "cos" "atan2" "exp" "log" "sqrt"
+        "rand" "srand"))
 
 (def %awk-p-builtin?
   (fn (_ s)

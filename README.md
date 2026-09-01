@@ -18,10 +18,13 @@ or ERE separators; `printf`/`sprintf`: the full conversion set
 digit from exact integer arithmetic, with OFMT and CONVFMT wired through
 the same engine; field assignment with the POSIX rebuild rules ($i and NF
 rebuild $0 through OFS, $0 re-splits per FS); and `sub`/`gsub` with &
-expansion, writing through the same l-value door as assignment.  The
-recorded gaps -- getline, redirection, user functions, toupper/tolower
-and the math set, RS -- live as pending specs in
-`tests/specs/04-divergences.spec.md`, not as promises.
+expansion, writing through the same l-value door as assignment;
+`toupper`/`tolower`; `match` with RSTART/RLENGTH; the math set (sin, cos,
+atan2, exp, log, sqrt) on the platform's libm floats, converted back to
+rationals at the boundary so floats never enter the value model; and
+`rand`/`srand` on the platform's deterministic xorshift.  The recorded
+gaps -- getline, redirection, user functions, RS -- live as pending specs
+in `tests/specs/04-divergences.spec.md`, not as promises.
 
 Paired with x-lang v0.9.0 (`lang.xon` is the checkable row).
 

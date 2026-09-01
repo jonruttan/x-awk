@@ -16,13 +16,20 @@
 ; Regex exec methods.  This import is also what fixes the dialect floor.
 
 (import x/type/regex)
+; The math set rides the platform's libm-backed floats, and rand rides its
+; xorshift PRNG.  Floats never enter awk's value model: eval.x converts at
+; the builtin boundary (rational in, printed digits back to rational out).
+(import x/num/float)
+(import x/num/random)
 
 (provide awk/prims
   char->integer integer->char
   string-length string-ref substring string-append string-concat
   string=? string? make-string list->string convert
   length reverse append map filter nth set-first!
-  regex-compile regex-search regex-split regex-replace-all regex-find-at)
+  regex-compile regex-search regex-split regex-replace-all regex-find-at
+  float-from float->string float-sin float-cos float-exp float-log
+  float-sqrt float-atan2 make-rng rng-int)
 
 ; THE DIRECT PRIMS, NOT THE CONVERT DISPATCHER, for the two casts the lexer
 ; makes per character: the dispatching version walks type alists and
@@ -78,3 +85,19 @@
 (def regex-split (fn (_ s rx) (Regex split s rx)))
 (def regex-replace-all (fn (_ s rep rx) (Regex replace-all s rep rx)))
 (def regex-find-at (fn (_ s pos rx) (Regex find-at s pos rx)))
+
+; --- The float boundary ------------------------------------------------------
+; (Float from) takes any exact number; the transcendentals are libm.
+(def float-from (fn (_ x) (Float from x)))
+(def float->string (fn (_ f) (%cvt f %string)))
+(def float-sin (fn (_ f) (Float sin f)))
+(def float-cos (fn (_ f) (Float cos f)))
+(def float-exp (fn (_ f) (Float exp f)))
+(def float-log (fn (_ f) (Float log f)))
+(def float-sqrt (fn (_ f) (Float sqrt f)))
+(def float-atan2 (fn (_ y x) (Float atan2 y x)))
+
+; --- The PRNG ----------------------------------------------------------------
+; (Random sw seed) is deterministic xorshift; (rng int n) answers [0, n).
+(def make-rng (fn (_ seed) (Random sw seed)))
+(def rng-int (fn (_ r n) (r int n)))

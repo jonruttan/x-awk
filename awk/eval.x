@@ -215,10 +215,16 @@
 ; --- Number formatting: %.6g from exact values -------------------------------
 
 ; trunc toward zero, via the probed fact that (% x 1) answers the
-; fractional part for a non-negative rational.
+; fractional part for a non-negative rational.  The (+ 0 ...) is load-
+; bearing: the tower's SUBTRACT can answer a denominator-1 rational
+; (1/1) without demoting it to an int at large denominators, and a
+; digit loop that then computes (+ 48 d) hands integer->char a rational
+; -- garbage bytes in the output.  ADD normalizes; measured, not
+; reasoned (the probes are in the suite's history).
 (def %awk-trunc
   (fn (_ x)
-    (if (< x 0) (- 0 (- (- 0 x) (% (- 0 x) 1))) (- x (% x 1)))))
+    (+ 0
+      (if (< x 0) (- 0 (- (- 0 x) (% (- 0 x) 1))) (- x (% x 1))))))
 
 (def %awk-int->str
   (fn (_ n)
@@ -416,6 +422,23 @@
               (#t (self (+ i 1) (pair (substring repl i (+ i 1)) acc))))))))
     (go 0 ())))
 
+; match(s, re): RSTART/RLENGTH always set, RSTART (1-based, 0 = none)
+; answered.  The re argument is a NODE for the same reason sub's is: an
+; ERE literal must reach here as its compiled regex, not as the 0/1 of
+; a match against $0.
+(def %awk-match-call
+  (fn (_ nodes)
+    (def s (%awk-to-str (%awk-eval (first nodes))))
+    (def rx (%awk-match-rx (first (rest nodes))))
+    (def m (regex-search s rx))
+    (if (null? m)
+      (do (%awk-var-set! "RSTART" 0)
+          (%awk-var-set! "RLENGTH" (- 0 1))
+          0)
+      (do (%awk-var-set! "RSTART" (+ 1 (first m)))
+          (%awk-var-set! "RLENGTH" (- (first (rest m)) (first m)))
+          (+ 1 (first m))))))
+
 (def %awk-sub-call
   (fn (_ global? nodes)
     (def rx (%awk-match-rx (first nodes)))
@@ -554,6 +577,78 @@
           (if (hit? i 0) (+ i 1) (self (+ i 1))))))
     (go 0)))
 
+; --- The float boundary and the PRNG -----------------------------------------
+; A libm result comes back as its printed digits re-read into a rational,
+; so floats never leak into the value model.  CAPPED AT 10 SIGNIFICANT
+; DIGITS, and the cap is load-bearing: the engine's rational arithmetic
+; silently corrupts somewhere past ~1e13-denominator operands (measured:
+; frac*1e5 + 1/2 on a 14-digit mantissa answered a wrong, non-integral
+; rational; the probes are in the suite's history).  Ten digits keeps
+; every formatter intermediate far inside the safe regime while carrying
+; 100x more precision than %.6g renders.  Digits past the tenth become
+; zeros -- position preserved, so magnitude survives and fraction tails
+; reduce away.
+(def %awk-float->rat
+  (fn (_ f)
+    (def s (float->string f))
+    (def end (string-length s))
+    (def go
+      (fn (self i sig started acc)
+        (if (>= i end) (list->string (reverse acc))
+          (let ((c (string-ref s i)))
+            (def ci (char->integer c))
+            (match
+              ; exponent marker: the tail is magnitude, copy it verbatim
+              ((if (= c #\e) #t (= c #\E))
+                (let ((copy ()))
+                  (set! copy
+                    (fn (self2 j acc2)
+                      (if (>= j end) (list->string (reverse acc2))
+                        (self2 (+ j 1) (pair (string-ref s j) acc2)))))
+                  (copy i acc)))
+              ((%awk-lex-digit? ci)
+                (let ((live (if started #t (not (= ci 48)))))
+                  (def sig2 (if live (+ sig 1) sig))
+                  (self (+ i 1) sig2 live
+                    (pair (if (if live (> sig2 10) #f) #\0 c) acc))))
+              (#t (self (+ i 1) sig started (pair c acc))))))))
+    (first (%awk-str-prefix-num (go 0 0 #f ())))))
+
+(def %awk-math-1
+  (fn (_ op v) (%awk-float->rat (op (float-from (%awk-to-num v))))))
+
+; rand state: xorshift behind srand's seed protocol.  srand() with no
+; argument reseeds with the previous seed here (C awk uses time of day;
+; a pure core has no clock, and determinism is the better default).
+(def %awk-rng ())
+(def %awk-seed 0)
+
+(def %awk-srand!
+  (fn (_ seed)
+    (def prev %awk-seed)
+    (set! %awk-seed seed)
+    (set! %awk-rng (make-rng seed))
+    prev))
+
+(def %awk-rand
+  (fn (_)
+    (/ (rng-int %awk-rng 2147483648) 2147483648)))
+
+; Case mapping, ASCII: the byte-string model's honest span.
+(def %awk-mapcase
+  (fn (_ s up?)
+    (def end (string-length s))
+    (def go
+      (fn (self i acc)
+        (if (>= i end) (list->string (reverse acc))
+          (let ((ci (char->integer (string-ref s i))))
+            (def co
+              (if up?
+                (if (if (>= ci 97) (<= ci 122) #f) (- ci 32) ci)
+                (if (if (>= ci 65) (<= ci 90) #f) (+ ci 32) ci)))
+            (self (+ i 1) (pair (integer->char co) acc))))))
+    (go 0 ())))
+
 (def %awk-builtin
   (fn (_ name args)
     (match
@@ -568,6 +663,21 @@
           (%awk-to-str (first (rest args)))))
       ((string=? name "sprintf")
         (%awk-sprintf (%awk-to-str (first args)) (rest args)))
+      ((string=? name "toupper") (%awk-mapcase (%awk-to-str (first args)) #t))
+      ((string=? name "tolower") (%awk-mapcase (%awk-to-str (first args)) #f))
+      ((string=? name "sin") (%awk-math-1 float-sin (first args)))
+      ((string=? name "cos") (%awk-math-1 float-cos (first args)))
+      ((string=? name "exp") (%awk-math-1 float-exp (first args)))
+      ((string=? name "log") (%awk-math-1 float-log (first args)))
+      ((string=? name "sqrt") (%awk-math-1 float-sqrt (first args)))
+      ((string=? name "atan2")
+        (%awk-float->rat
+          (float-atan2 (float-from (%awk-to-num (first args)))
+            (float-from (%awk-to-num (first (rest args)))))))
+      ((string=? name "rand") (%awk-rand))
+      ((string=? name "srand")
+        (%awk-srand!
+          (if (null? args) %awk-seed (%awk-trunc (%awk-to-num (first args))))))
       ((string=? name "int")
         (%awk-trunc (%awk-to-num (first args))))
       ((string=? name "substr")
@@ -748,6 +858,8 @@
               (%awk-sub-call #f (first (rest (rest node)))))
             ((string=? nm "gsub")
               (%awk-sub-call #t (first (rest (rest node)))))
+            ((string=? nm "match")
+              (%awk-match-call (first (rest (rest node)))))
             (#t
               (%awk-builtin nm
                 (map (fn (_ a) (%awk-eval a)) (first (rest (rest node)))))))))
@@ -957,6 +1069,10 @@
     (%awk-var-set! "SUBSEP" (list->string (list (integer->char 28))))
     (%awk-var-set! "OFMT" "%.6g")
     (%awk-var-set! "CONVFMT" "%.6g")
+    (%awk-var-set! "RSTART" 0)
+    (%awk-var-set! "RLENGTH" (- 0 1))
+    (set! %awk-seed 0)
+    (set! %awk-rng (make-rng 0))
     (def begins ())
     (def ends ())
     (def rules ())
