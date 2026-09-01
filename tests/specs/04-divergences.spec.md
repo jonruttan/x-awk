@@ -62,20 +62,21 @@ differs; sub/gsub extraction will, once built.
 
 ## not built yet, loudly
 
-### getline, redirection, system, command-line files
+### file and pipe getline, redirection, system, command-line files
 
 ```awk
 (awk-run "{print > \"file\"}" "a\n")
 ```
 
-### user functions
+The main-input getline forms are built; the file (getline < "f"), pipe
+("cmd" | getline), and output-redirection forms arrive with the CLI
+front and the Sys doors.
+
+### exit from inside a function
 
 ```awk
-(awk-run "function f(x){return x+1} BEGIN{print f(1)}" "")
+(awk-run "function f(){exit 1} BEGIN{f()}" "")
 ```
 
-### RS: custom record separators
-
-```awk
-(awk-run "BEGIN{RS=\";\"}{print NR, $0}" "a;b")
-```
+POSIX allows it (next it forbids); here every control escaping a
+function raises.  Thread an exit flag when someone needs it.

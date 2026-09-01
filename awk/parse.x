@@ -149,9 +149,21 @@
           ((eq? tag (lit ere))
             (pair (list (lit ere) (regex-compile (first (rest tok))))
               (rest toks)))
+          ; funcname: the lexer saw `name(` with no space -- a builtin
+          ; call or a user call, by the name.
+          ((eq? tag (lit funcname))
+            (let ((nm (first (rest tok))))
+              (let ((r (%awk-p-args (rest (rest toks)))))
+                (pair
+                  (if (%awk-p-builtin? nm)
+                    (list (lit call) nm (first r))
+                    (list (lit ucall) nm (first r)))
+                  (rest r)))))
           ((eq? tag (lit name))
             (let ((nm (first (rest tok))))
               (match
+                ; a builtin tolerates space before its ( -- POSIX gives
+                ; BUILTIN_FUNC_NAME no adjacency rule
                 ((if (%awk-p-builtin? nm) (%awk-p-op? (rest toks) "(") #f)
                   (let ((r (%awk-p-args (rest (rest toks)))))
                     (pair (list (lit call) nm (first r)) (rest r))))
@@ -161,6 +173,15 @@
                 ((string=? nm "length")
                   (pair (list (lit call) "length" ()) (rest toks)))
                 (#t (pair (list (lit var) nm) (rest toks))))))
+          ; getline [var]: the main-input forms; file and pipe forms
+          ; arrive with the CLI front.
+          ((%awk-p-kw? toks (lit getline))
+            (if (eq? (%awk-p-tag (rest toks)) (lit name))
+              (pair
+                (list (lit getline)
+                  (list (lit var) (first (rest (first (rest toks))))))
+                (rest (rest toks)))
+              (pair (list (lit getline) ()) (rest toks))))
           ((%awk-p-op? toks "(")
             (let ((r (%awk-p-expr (%awk-p-skip-nl (rest toks)) #t)))
               (if (%awk-p-op? (rest r) ")")
@@ -258,6 +279,7 @@
           ((eq? tag (lit str)) #t)
           ((eq? tag (lit ere)) #t)
           ((eq? tag (lit name)) #t)
+          ((eq? tag (lit funcname)) #t)
           ((eq? tag (lit op))
             (let ((s (first (rest (first toks)))))
               (if (string=? s "(") #t
@@ -515,6 +537,11 @@
                 (pair (list (lit delete) nm (first r)) (rest r)))
               (pair (list (lit delete) nm ()) ts)))
           (%awk-p-err "expected an array name after delete" (rest toks))))
+      ((%awk-p-kw? toks (lit return))
+        (if (%awk-p-term? (rest toks))
+          (pair (list (lit return) ()) (rest toks))
+          (let ((r (%awk-p-expr (rest toks) #t)))
+            (pair (list (lit return) (first r)) (rest r)))))
       ((%awk-p-kw? toks (lit next)) (pair (list (lit next)) (rest toks)))
       ((%awk-p-kw? toks (lit break)) (pair (list (lit break)) (rest toks)))
       ((%awk-p-kw? toks (lit continue))
@@ -562,9 +589,39 @@
           (%awk-p-err "expected }" (rest r))))
       (%awk-p-err "expected {" toks))))
 
+; function NAME(p1, p2, ...) { body } -- the parameter list is names
+; only; extras beyond the call's arguments are the function's locals.
+(def %awk-p-func
+  (fn (_ toks)
+    (def t2 (rest toks))
+    (def nm
+      (match
+        ((eq? (%awk-p-tag t2) (lit funcname)) (first (rest (first t2))))
+        ((eq? (%awk-p-tag t2) (lit name)) (first (rest (first t2))))
+        (#t (%awk-p-err "expected a function name" t2))))
+    (def t3 (rest t2))
+    (if (not (%awk-p-op? t3 "("))
+      (%awk-p-err "expected ( after the function name" t3)
+      (let ((params ()))
+        (def go
+          (fn (self ts acc)
+            (match
+              ((%awk-p-op? ts ")") (pair (reverse acc) (rest ts)))
+              ((eq? (%awk-p-tag ts) (lit name))
+                (let ((ts2 (rest ts)))
+                  (if (%awk-p-op? ts2 ",")
+                    (self (%awk-p-skip-nl (rest ts2))
+                      (pair (first (rest (first ts))) acc))
+                    (self ts2 (pair (first (rest (first ts))) acc)))))
+              (#t (%awk-p-err "expected a parameter name or )" ts)))))
+        (def pr (go (rest t3) ()))
+        (def br (%awk-p-action (%awk-p-skip-nl (rest pr))))
+        (pair (list (lit func) nm (first pr) (first br)) (rest br))))))
+
 (def %awk-p-item
   (fn (_ toks)
     (match
+      ((%awk-p-kw? toks (lit function)) (%awk-p-func toks))
       ((%awk-p-kw? toks (lit BEGIN))
         (let ((r (%awk-p-action (%awk-p-skip-nl (rest toks)))))
           (pair (list (lit begin) (first r)) (rest r))))

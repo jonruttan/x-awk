@@ -34,6 +34,9 @@
 (def %awk-f0 "")        ; the current record's text
 (def %awk-fields ())    ; current fields, as values (strnum or string)
 (def %awk-fs-cache ())  ; (fs-text . splitter) -- see %awk-split-record
+(def %awk-input "")     ; the run's whole input text
+(def %awk-recs (lit unread))  ; remaining records; see %awk-recs-force!
+(def %awk-funcs ())     ; ((name params . body) ...)
 
 (def %awk-var-box
   (fn (_ name)
@@ -364,8 +367,18 @@
 
 (def %awk-split-record
   (fn (_ rec)
+    (def fs (%awk-to-str (%awk-var-get "FS")))
     (map (fn (_ t) (%awk-input-val t))
-      (%awk-split-by rec (%awk-to-str (%awk-var-get "FS"))))))
+      ; paragraph mode (RS=""): a newline separates fields ALWAYS, on
+      ; top of whatever FS says -- POSIX's one field-splitting override.
+      (if (string=? (%awk-to-str (%awk-var-get "RS")) "")
+        (let ((lines (%awk-split-char rec #\newline)))
+          (def flat
+            (fn (self ls)
+              (if (null? ls) ()
+                (append (%awk-split-by (first ls) fs) (self (rest ls))))))
+          (flat lines))
+        (%awk-split-by rec fs)))))
 
 ; split(s, a [, fs]) -- the array argument arrives as an AST node because
 ; it passes BY NAME: the parser hands the nodes over unevaluated and this
@@ -753,6 +766,48 @@
     (%awk-lval-set! lv new)
     (if pre? new old)))
 
+; A user function call.  awk's scoping: parameters are the ONLY locals
+; (extras beyond the arguments start uninit), everything else is global.
+; Dynamic save/restore carries that -- and because an unbound variable
+; already reads as uninit (), "restore" is just writing the old VALUE
+; back, whether or not the name existed.  An array argument binds the
+; array OBJECT itself, which is pass-by-reference for free.  A raise out
+; of the body skips the restore; per-run state resets at awk-run, the
+; crafting doc's line on where restores belong.
+(def %awk-ucall
+  (fn (_ nm arg-nodes)
+    (def find
+      (fn (self fs)
+        (if (null? fs) ()
+          (if (string=? (first (first fs)) nm)
+            (first fs)
+            (self (rest fs))))))
+    (def f (find %awk-funcs))
+    (if (null? f)
+      (Err raise (lit awk)
+        (string-append "awk: calling undefined function " nm) ())
+      (let ((params (first (rest f))))
+        (def body (rest (rest f)))
+        (def args (map (fn (_ a) (%awk-eval a)) arg-nodes))
+        (if (> (length args) (length params))
+          (Err raise (lit awk)
+            (string-append "awk: too many arguments to " nm) ())
+          (let ((saved (map (fn (_ p) (pair p (%awk-var-get p))) params)))
+            (def bind
+              (fn (self ps as)
+                (unless (null? ps)
+                  (%awk-var-set! (first ps) (if (null? as) () (first as)))
+                  (self (rest ps) (if (null? as) () (rest as))))))
+            (bind params args)
+            (def c (%awk-exec-list body))
+            (map (fn (_ sv) (%awk-var-set! (first sv) (rest sv))) saved)
+            (match
+              ((null? c) ())
+              ((eq? (first c) (lit return)) (first (rest c)))
+              (#t (Err raise (lit awk)
+                    "awk: next/break/continue/exit cannot escape a function"
+                    ())))))))))
+
 (set! %awk-eval
   (fn (_ node)
     (def tag (first node))
@@ -845,6 +900,18 @@
         (if (%awk-truthy? (%awk-eval (first (rest node))))
           (%awk-eval (first (rest (rest node))))
           (%awk-eval (first (rest (rest (rest node)))))))
+      ((eq? tag (lit ucall))
+        (%awk-ucall (first (rest node)) (first (rest (rest node)))))
+      ; getline [var]: the next main-input record.  Bare getline is a
+      ; full record swap ($0, NF); the var form stores the text only.
+      ; Both count NR.  1 on a record, 0 at end of input.
+      ((eq? tag (lit getline))
+        (let ((rec (%awk-next-record!)))
+          (if (eq? rec (lit eof)) 0
+            (do (if (null? (first (rest node)))
+                  (%awk-set-record! rec)
+                  (%awk-lval-set! (first (rest node)) (%awk-input-val rec)))
+                1))))
       ((eq? tag (lit preinc)) (%awk-incr! (first (rest node)) 1 #t))
       ((eq? tag (lit postinc)) (%awk-incr! (first (rest node)) 1 #f))
       ((eq? tag (lit predec)) (%awk-incr! (first (rest node)) (- 0 1) #t))
@@ -1011,23 +1078,74 @@
         (list (lit exit)
           (if (null? (first (rest stmt))) 0
             (%awk-to-num (%awk-eval (first (rest stmt)))))))
+      ((eq? tag (lit return))
+        (list (lit return)
+          (if (null? (first (rest stmt))) ()
+            (%awk-eval (first (rest stmt))))))
       (#t (Err raise (lit awk) "awk: unknown statement" tag)))))
 
 ; --- The record loop ---------------------------------------------------------
 
-; Records: input split on newline; a trailing newline closes the last
+; Paragraph mode: records are runs of non-blank lines; blank lines
+; between, before, and after are separators, never records.
+(def %awk-para-records
+  (fn (_ input)
+    (def lines (%awk-split-char input #\newline))
+    (def join
+      (fn (self ls)
+        (if (null? (rest ls)) (first ls)
+          (string-append (first ls) (string-append "\n" (self (rest ls)))))))
+    (def go
+      (fn (self ls run acc)
+        (if (null? ls)
+          (reverse (if (null? run) acc (pair (join (reverse run)) acc)))
+          (if (= (string-length (first ls)) 0)
+            (self (rest ls) ()
+              (if (null? run) acc (pair (join (reverse run)) acc)))
+            (self (rest ls) (pair (first ls) run) acc)))))
+    (go lines () ())))
+
+; Records per RS: "" is paragraph mode; otherwise the FIRST character of
+; RS separates (POSIX leaves multi-character RS unspecified; first-char
+; is the one-true-awk reading).  A trailing separator closes the last
 ; record rather than opening an empty one.
 (def %awk-records
   (fn (_ input)
-    (def all (%awk-split-char input #\newline))
-    (def drop-last
-      (fn (self l)
-        (if (null? (rest l)) () (pair (first l) (self (rest l))))))
-    (if (null? all) ()
-      (if (= (string-length input) 0) ()
-        (if (= (string-ref input (- (string-length input) 1)) #\newline)
-          (drop-last all)
-          all)))))
+    (def rs (%awk-to-str (%awk-var-get "RS")))
+    (if (string=? rs "")
+      (%awk-para-records input)
+      (let ((c (string-ref rs 0)))
+        (def all (%awk-split-char input c))
+        (def drop-last
+          (fn (self l)
+            (if (null? (rest l)) () (pair (first l) (self (rest l))))))
+        (if (null? all) ()
+          (if (= (string-length input) 0) ()
+            (if (= (string-ref input (- (string-length input) 1)) c)
+              (drop-last all)
+              all)))))))
+
+; The record stream materializes on FIRST touch, not at run start: RS
+; assigned in BEGIN must govern the split, and getline in BEGIN must be
+; able to read -- both fall out of laziness and neither survives an
+; eager split.
+(def %awk-recs-force!
+  (fn (_)
+    (if (eq? %awk-recs (lit unread))
+      (set! %awk-recs (%awk-records %awk-input))
+      ())))
+
+; One record off the stream: the symbol eof at exhaustion -- NOT nil,
+; because "" is a legitimate record (RS=";" over "a;;b" has one in the
+; middle).  NR counts here; shared by the main loop and getline.
+(def %awk-next-record!
+  (fn (_)
+    (%awk-recs-force!)
+    (if (null? %awk-recs) (lit eof)
+      (let ((rec (first %awk-recs)))
+        (set! %awk-recs (rest %awk-recs))
+        (%awk-var-set! "NR" (+ 1 (%awk-to-num (%awk-var-get "NR"))))
+        rec))))
 
 (def %awk-rule-fires?
   (fn (_ pat)
@@ -1063,6 +1181,7 @@
     (%awk-var-set! "FS" " ")
     (%awk-var-set! "OFS" " ")
     (%awk-var-set! "ORS" "\n")
+    (%awk-var-set! "RS" "\n")
     (%awk-var-set! "NR" 0)
     (%awk-var-set! "NF" 0)
     ; SUBSEP: the multi-subscript joiner, \034 as everywhere else.
@@ -1073,6 +1192,9 @@
     (%awk-var-set! "RLENGTH" (- 0 1))
     (set! %awk-seed 0)
     (set! %awk-rng (make-rng 0))
+    (set! %awk-input input)
+    (set! %awk-recs (lit unread))
+    (set! %awk-funcs ())
     (def begins ())
     (def ends ())
     (def rules ())
@@ -1085,6 +1207,15 @@
                 (set! begins (append begins (first (rest item)))))
               ((eq? (first item) (lit end))
                 (set! ends (append ends (first (rest item)))))
+              ; functions register up front: a call may precede its
+              ; definition in the program text
+              ((eq? (first item) (lit func))
+                (set! %awk-funcs
+                  (pair
+                    (pair (first (rest item))
+                      (pair (first (rest (rest item)))
+                        (first (rest (rest (rest item))))))
+                    %awk-funcs)))
               (#t (set! rules (append rules (list item))))))
           (self (rest is)))))
     (sort-items items)
@@ -1094,14 +1225,14 @@
     (unless (if exited? #t (if (null? rules) (null? ends) #f))
       (let ((loop ()))
         (set! loop
-          (fn (self recs)
-            (unless (null? recs)
-              (%awk-var-set! "NR" (+ 1 (%awk-to-num (%awk-var-get "NR"))))
-              (%awk-set-record! (first recs))
-              (let ((c (%awk-run-rules rules)))
-                (if (if (null? c) #f (eq? (first c) (lit exit)))
-                  ()
-                  (self (rest recs)))))))
-        (loop (%awk-records input))))
+          (fn (self)
+            (let ((rec (%awk-next-record!)))
+              (unless (eq? rec (lit eof))
+                (%awk-set-record! rec)
+                (let ((c (%awk-run-rules rules)))
+                  (if (if (null? c) #f (eq? (first c) (lit exit)))
+                    ()
+                    (self)))))))
+        (loop)))
     (%awk-exec-list ends)
     ()))

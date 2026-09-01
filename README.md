@@ -22,9 +22,13 @@ expansion, writing through the same l-value door as assignment;
 `toupper`/`tolower`; `match` with RSTART/RLENGTH; the math set (sin, cos,
 atan2, exp, log, sqrt) on the platform's libm floats, converted back to
 rationals at the boundary so floats never enter the value model; and
-`rand`/`srand` on the platform's deterministic xorshift.  The recorded
-gaps -- getline, redirection, user functions, RS -- live as pending specs
-in `tests/specs/04-divergences.spec.md`, not as promises.
+`rand`/`srand` on the platform's deterministic xorshift; `RS` including
+paragraph mode; `getline` and `getline var` from the main input (the
+record stream is lazy, so RS set in BEGIN governs the split and getline
+works from BEGIN); and user functions -- parameters as the only locals,
+arrays by reference, recursion, forward references.  The recorded gaps --
+file/pipe getline, redirection, command-line files -- live as pending
+specs in `tests/specs/04-divergences.spec.md`, not as promises.
 
 Paired with x-lang v0.9.0 (`lang.xon` is the checkable row).
 

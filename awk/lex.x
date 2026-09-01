@@ -165,7 +165,11 @@
               (#t (self (+ j 1) (pair c acc))))))))
     (go i ())))
 
-; Name or keyword.
+; Name, keyword, or -- when a ( follows with NO space between -- a
+; function name.  That adjacency is POSIX's own FUNC_NAME rule, and it is
+; what disambiguates `f(1)` (a call) from `f (1)` (concatenation of f and
+; a parenthesized 1).  The parser routes a funcname to a builtin or a
+; user call; the lexer only records the shape.
 (def %awk-lex-name
   (fn (_ src i end)
     (def go
@@ -177,11 +181,14 @@
               (pair (list->string (reverse acc)) j))))))
     (def r (go i ()))
     (def s (first r))
+    (def j (rest r))
     (pair
-      (if (%awk-kw? s)
-        (list (lit kw) (convert s %symbol))
-        (list (lit name) s))
-      (rest r))))
+      (match
+        ((%awk-kw? s) (list (lit kw) (convert s %symbol)))
+        ((if (< j end) (= (string-ref src j) #\() #f)
+          (list (lit funcname) s))
+        (#t (list (lit name) s)))
+      j)))
 
 ; Operator: longest match first.  The two-char set, then the singles.
 (def %awk-lex2
