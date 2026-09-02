@@ -1,5 +1,7 @@
 # x-awk
 
+<p align="center"><img src="docs/bitwise-banner.svg" alt="x-awk, with Bitwise the owl" width="100%"></p>
+
 POSIX awk on x-lang: pattern-action rules over records and fields, written
 in x.  Part of the self-hosting arc -- awk is the heaviest external tool in
 x-lang's own build closure after the regex trio (see x-lang's
@@ -78,3 +80,5 @@ expectations.
     awk/cli.x         argv to a plan (pure), and awk-main (the exit)
     awk/printer.x     the lang's own write
     tests/            markdown specs + the platform's runner, vendored nowhere
+
+<p align="center"><img src="docs/bitwise-mark.svg" alt="Bitwise" width="96"></p>
