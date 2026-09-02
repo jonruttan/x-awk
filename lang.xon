@@ -20,7 +20,12 @@
 ; doors are radon opt-ins.  Declaring lighter now would mean re-declaring at
 ; the first getline, and a dialect row that changes per release is a row
 ; nobody can rely on.
-(dialect rn)
+; HELIUM, plus exactly the libraries this bundle imports and nothing
+; ambient.  Radon is only a particular set of libraries to load, and
+; the set it loads (the numeric tower, JIT-compiled tokenizer
+; analysers) costs ~9s of every invocation that a tool never uses
+; (measured 2026-09-02; the x-coreutils manifest has the numbers).
+(dialect he)
 
 ; PAIRING, NOT PINNING.  This row tracks what the specs are green AGAINST.
 ; v0.10.0 is a real floor, not just the current release: the stdin slurp's
