@@ -44,14 +44,17 @@ SPEC_PATH="${SPEC_PATH:-$BUNDLE/tests/specs}"
 # harness and keys the image on everything it depends on -- the harness,
 # the platform's lib/, its engine, and awk/ (the KEY-PATH) -- so an edit
 # to any of them rewrites it (a few seconds) and a current one is skipped.
-# Each spec file then loads in a third of a second instead of booting the
-# core and the tower from source.  The writer lives in a CHECKOUT only; an
-# installed tree boots from source and says so.  IMG=0 is the control: the
-# suite from source, for when the image is the suspect -- one file per
-# process there too (SPEC_BATCH=1, the shape the image run has), so the boot
-# is the only difference: eight awk files on the interpreted tower overrun
-# the runner's allocation ceiling in one process, where the compiled tower
-# of the old x-base.x harness did not.
+# Each spec file then loads in about a second instead of booting x-base.x
+# from source.  The writer lives in a CHECKOUT only; an installed tree
+# boots from source and says so, and so does a checkout whose engine
+# predates x-engine-c v0.2.8 (the writer refuses x-base.x's compiled
+# tower there; tests/gen-harness.sh has the story).  IMG=0 is the control:
+# the suite from source, for when the image is the suspect -- one file per
+# process there too (SPEC_BATCH=1, the shape the image run has), so the
+# boot is the only difference between the two runs.  That makes the control
+# slow (every file boots x-base.x: 140s against 21s from the image and 43s
+# batched eight to a process, 2026-09-06), which is the price of a control
+# that differs in exactly one thing.
 if [ "${IMG:-1}" = 0 ]; then
 	SPEC_BATCH="${SPEC_BATCH:-1}"; export SPEC_BATCH
 else
