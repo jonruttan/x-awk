@@ -50,12 +50,14 @@ fi
 
 # A KNOWN GAP, RECORDED HERE BECAUSE THIS IS WHERE IT WOULD HIDE: the tower
 # x-base.x boots is one `x -l awk` never loads.  The bundle declares
-# dialect he and awk/prims.x imports float alone, so `x -l awk` prints 0
-# for 1/4 and 2 for exp(1) while this suite is green (found 2026-09-05, by
-# a harness on bare x-core.x: 19 failures).  x/num/rational alone does not
-# close it (awk's printer dies on a rational without the tower's generics),
-# and x/num/tower costs 7s of a helium boot (8.6s against 1.9s).  That is
-# the bundle's bug to price on its own, not the harness's to paper over.
+# dialect he and awk/prims.x imports float alone, so every fraction in the
+# shipped lang truncates -- 0 for 1/4, 2 for exp(1), 0 for a 0.25 literal
+# -- while this suite, on x-base.x's tower, stays green (found 2026-09-05,
+# by a harness on bare x-core.x: 19 failures).  It is priced now, in
+# docs/numeric-gap.md: what breaks, what each of the four fixes costs, and
+# why the answer waits on a release whose `x -l awk` boots from an image.
+# Still the bundle's bug rather than the harness's, and still not the
+# harness's to paper over.
 
 # %install-root FIRST (deferred imports resolve against it), the amalgam
 # (never a dialect entry -- those end by starting a REPL), then the bundle
