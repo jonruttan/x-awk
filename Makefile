@@ -26,6 +26,12 @@ install: ## Install into <share>/langs/awk
 	mkdir -p "$(DEST)"
 	cp -R $(PAYLOAD) "$(DEST)/"
 	printf '%s\n' '$(LANG_VERSION)' > "$(DEST)/version"
+	@# THE BOOT, SAVED: the state image `x -l awk` loads instead of booting
+	@# from source -- 0.5s against 6 (docs/state-images.md in x-lang).  The
+	@# wrapper writes it here, once, into the installed bundle's .images/,
+	@# because a bundle's image is its installer's to write; a platform
+	@# whose wrapper predates --image, or has no writer, boots from source.
+	"$(X)" --image -l awk || true
 	@echo "x-awk: installed to $(DEST)"
 	@echo "x-awk: try  x -l awk"
 
