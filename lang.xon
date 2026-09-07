@@ -28,9 +28,12 @@
 (dialect he)
 
 ; PAIRING, NOT PINNING.  This row tracks what the specs are green AGAINST.
-; v0.10.0 is a real floor, not just the current release: the stdin slurp's
-; 64K chunks (awk/eval.x) need its Str8 make stack fix and the str make
-; allocation door -- nothing earlier can serve them.
-(requires-release "v0.10.0")
+; v0.12.0 is a real floor, not just the current release: it pins the
+; engine (x-engine-c v0.2.8) on which x-base.x writes a state image, and
+; the suite boots from one (tests/gen-harness.sh).  Beneath it, v0.10.0
+; was the floor for the lang itself: the stdin slurp's 64K chunks
+; (awk/eval.x) need its Str8 make stack fix and the str make allocation
+; door -- nothing earlier can serve them.
+(requires-release "v0.12.0")
 
 (entry "run.x")

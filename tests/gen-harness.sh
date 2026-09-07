@@ -3,7 +3,7 @@
 #
 # ## tests/gen-harness.sh -- write tests/lib/harness.gen.x
 #
-# @description Generates the spec harness: the platform core plus AWK,
+# @description Generates the spec harness: the platform tower plus AWK,
 #   with no launcher.  Two absolute paths, both machine facts.
 # @author [Jon Ruttan](jonruttan@gmail.com)
 # @copyright 2026 Jon Ruttan
@@ -18,57 +18,53 @@ OUT="$BUNDLE/tests/lib/harness.gen.x"
 
 mkdir -p "$BUNDLE/tests/lib"
 
-# THE LAUNCHER-FREE BOOT AMALGAM, and which one is the whole question.
-# x-core.x plus the numeric tower (imported below, interpreted) is the
-# tower x-base.x gave this suite, minus the compiled analysers -- and that
-# is what a STATE IMAGE can hold: x-base.x's compiled tower carries JIT
-# entry points no image can name, so a suite booted from x-base.x boots
-# every file from source, ~1s each, where the image loads in a third of
-# that (tests/spec-runner.sh writes and uses it; measured 38s -> 16s).
-# x-base.x is the fallback for a platform whose `make boot` predates
-# x-core.x (v0.11.0 and earlier): the same lang, from source.
+# THE LAUNCHER-FREE BOOT AMALGAM IS x-base.x, AND IT IMAGES.  Its compiled
+# tower was the one thing a state image could not hold -- native analysers
+# in pages of the writing process, which no name reacquires elsewhere --
+# so for one day (2026-09-05) this harness booted x-core.x and imported the
+# tower interpreted to get an image at all.  Two things closed that.  The
+# platform's writer now un-JITs every compile site before its walk and the
+# loader re-JITs them after the install (docs/state-images.md, "Compiled
+# code: put down before the write, picked up after the load"), so the
+# tower travels as the sources it was compiled from.  And the engine's
+# `def` scopes by the live frame instead of the save stack (x-engine-c
+# v0.2.8, #41): the asm cache's own tail-position defs had been leaking
+# into globals the writer could not name, on a cold byte cache above all,
+# which is the case CI sees.  On that engine x-base.x writes clean, and
+# `make images` in the platform lists it.  tests/spec-runner.sh writes
+# and uses the image; a platform whose engine predates the pin refuses
+# the write and the suite boots from source, which is only slower.
 #
-# A KNOWN GAP, NOT HIDDEN: the tower the harness imports is one `x -l awk`
-# never loads -- the bundle declares dialect he and awk/prims.x imports
-# float alone, so `x -l awk` prints 0 for 1/4 and 2 for exp(1) while this
-# suite is green (found 2026-09-05, the day the harness left x-base.x).
-# x/num/rational alone does not close it (awk's printer dies on a
-# rational without the tower's generics), and x/num/tower costs 7s of
-# boot under he (8.6s against 1.9s), so the fix is the bundle's to price.
-#
-# An install has the amalgams at boot/, a checkout builds them into
-# build/boot/.  lib/x-core.x is NOT a substitute -- it opens with a
+# An install has the amalgam at boot/, a checkout builds it into
+# build/boot/.  lib/x-base.x is NOT a substitute -- it opens with a
 # root-relative include.  (Same probe as x-ash; see its notes.)
-for _c in "$X_ROOT/boot/x-core.x" "$X_ROOT/build/boot/x-core.x" \
-          "$X_ROOT/boot/x-base.x" "$X_ROOT/build/boot/x-base.x"; do
+for _c in "$X_ROOT/boot/x-base.x" "$X_ROOT/build/boot/x-base.x"; do
 	if [ -f "$_c" ]; then X_BASE="$_c"; break; fi
 done
 if [ -z "${X_BASE:-}" ]; then
 	echo "x-awk: no launcher-free boot amalgam under $X_ROOT" >&2
-	echo "  looked at boot/x-core.x, build/boot/x-core.x, boot/x-base.x and build/boot/x-base.x" >&2
+	echo "  looked at boot/x-base.x and build/boot/x-base.x" >&2
 	echo "  in a checkout, run 'make boot' in the x-lang tree first" >&2
 	exit 1
 fi
-# The tower import rides x-core.x only: x-base.x already carries the
-# tower's modules compiled, and the generics over them are unprobed.
-# AFTER awk/base, not before: the interpreted tower hooks its number
-# analysers into the reader, and every byte read after that pays them --
-# awk's own source read through them could not finish inside the runner's
-# allocation ceiling (26s, then dead, every file).  Loaded last, they see
-# only the specs' snippets.
-case "$X_BASE" in
-	*/x-base.x) echo "x-awk: no x-core.x amalgam under $X_ROOT -- the harness boots x-base.x (no state image)" >&2; TOWER="" ;;
-	*) TOWER="(import x/num/tower)" ;;
-esac
+
+# A KNOWN GAP, RECORDED HERE BECAUSE THIS IS WHERE IT WOULD HIDE: the tower
+# x-base.x boots is one `x -l awk` never loads.  The bundle declares
+# dialect he and awk/prims.x imports float alone, so `x -l awk` prints 0
+# for 1/4 and 2 for exp(1) while this suite is green (found 2026-09-05, by
+# a harness on bare x-core.x: 19 failures).  x/num/rational alone does not
+# close it (awk's printer dies on a rational without the tower's generics),
+# and x/num/tower costs 7s of a helium boot (8.6s against 1.9s).  That is
+# the bundle's bug to price on its own, not the harness's to paper over.
 
 # %install-root FIRST (deferred imports resolve against it), the amalgam
 # (never a dialect entry -- those end by starting a REPL), then the bundle
 # root armed exactly as run.x arms it.  Nothing under awk/ includes anything
 # from the platform: re-including a platform module on a booted tower is a
-# segfault, not an error (x-lang#515).  The collect at the end is the one
-# every dialect entry makes after its boot: the interpreted tower leaves
-# enough garbage that an eight-file batch from source hit the runner's
-# allocation ceiling without it (IMG=0, 161 of 167 dead).
+# segfault, not an error (x-lang#515).  No collect of our own: x-base.x
+# ends its boot with one, and the compiled tower leaves no garbage that
+# needs a second (the interpreted tower did -- IMG=0, 161 of 167 dead
+# without it; measured both ways 2026-09-06 on the way back).
 cat > "$OUT" <<EOT
 ; harness.gen.x -- GENERATED by tests/gen-harness.sh.  Do not edit, do not
 ; commit: the two absolute paths below are facts of this machine.
@@ -76,7 +72,5 @@ cat > "$OUT" <<EOT
 (include "$X_BASE")
 (import-path! "$BUNDLE")
 (import awk/base)
-$TOWER
 (set! %repl-print %awk-repl-print)
-((prim-ref (lit heap) (lit collect)))
 EOT
