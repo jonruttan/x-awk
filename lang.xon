@@ -34,6 +34,6 @@
 ; was the floor for the lang itself: the stdin slurp's 64K chunks
 ; (awk/eval.x) need its Str8 make stack fix and the str make allocation
 ; door -- nothing earlier can serve them.
-(requires-release "v0.12.0")
+(requires-release "v0.13.0")
 
 (entry "run.x")
