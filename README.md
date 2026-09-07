@@ -52,7 +52,11 @@ FILENAME/FNR/ARGV/ARGC are live, and exit's status is the process's.
 `x -l awk` with no operands is the x REPL with the awk core loaded --
 `(awk-run PROGRAM-TEXT INPUT-TEXT)` is the pure core the suite drives.
 
-Pre-release honesty: an interpreted awk on an interpreted tower is not
+Pre-release honesty, twice over.  The shipped lang has no fractional
+arithmetic: `x -l awk` answers 0 for `1/4` and 3 for `3.14`, because the
+bundle declares dialect `he` and imports float alone.  docs/numeric-gap.md
+has the blast radius and the price of each way out.  And an interpreted
+awk on an interpreted tower is not
 C awk -- after the first performance pass (byte-door scans, if-chain
 dispatchers, no defs at depth: 2.8x on the record loop) it runs about
 8ms/record plus a ~7s dialect boot.  Fine for scripts and suites;
