@@ -285,10 +285,13 @@
           ((eq? tag (lit funcname)) #t)
           ((eq? tag (lit op))
             (let ((s (first (rest (first toks)))))
-              (if (string=? s "(") #t
-                (if (string=? s "$") #t
-                  (if (string=? s "!") #t
-                    (if (string=? s "++") #t (string=? s "--")))))))
+              (match
+                ((string=? s "(") #t)
+                ((string=? s "$") #t)
+                ((string=? s "!") #t)
+                ((string=? s "++") #t)
+                ((string=? s "--") #t)
+                (#t #f))))
           (#t #f))))))
 
 (def %awk-p-concat
