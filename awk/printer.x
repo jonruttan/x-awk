@@ -6,14 +6,12 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; AWK IS NOT A LISP: what an awk run prints is what its print statements
-; printed, and that has already gone to stdout by the time a result comes
-; back.  So this printer is mostly quiet -- nil prints nothing.
+; An awk run prints what its print statements printed, and that has already
+; gone to stdout by the time a result comes back, so this printer is mostly
+; quiet -- nil prints nothing.
 ;
-; THAT SAID, awk still needs its own `write`, for the same reason every
-; bundle does: x's is round-trippable, so a token list renders as
-; (('num "1")) rather than ((num "1")).  The specs assert the second --
-; fifth bundle, same twenty lines (x-lang#518).
+; It still needs its own `write`: x's is round-trippable, so a token list would
+; render as (('num "1")) where the specs assert ((num "1")).
 
 (provide awk/printer %awk-repl-print %awk-write)
 

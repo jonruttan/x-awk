@@ -41,11 +41,10 @@
   sys-pipe sys-fork sys-exec sys-wait
   sys-sigpipe-ignore! sys-sigpipe-default!)
 
-; THE DIRECT PRIMS, NOT THE CONVERT DISPATCHER, for the two casts the lexer
-; makes per character: the dispatching version walks type alists and
-; allocates, and lib/x/reader/analyser.x holds the same references for the
-; same reason.  Note the namespaces: conversions key on the SOURCE type,
-; so the pair is (char ->int) and (int ->char).
+; The direct prims, not the convert dispatcher, for the two casts the lexer
+; makes per character: the dispatching version walks type alists and allocates.
+; lib/x/reader/analyser.x holds the same references. Conversions key on the
+; source type, so the pair is (char ->int) and (int ->char).
 (def char->integer (prim-ref (lit char) (lit ->int)))
 (def integer->char (prim-ref (lit int) (lit ->char)))
 
@@ -66,7 +65,7 @@
 
 (def %cvt (prim-ref (lit convert) (lit to)))
 (def list->string (fn (_ l) (if (null? l) "" (%cvt l %string))))
-; NO EXPLICIT RECEIVER: every call fills the `_` slot implicitly, `apply`
+; No explicit receiver: every call fills the `_` slot implicitly, apply
 ; included, so passing one by hand shifts every argument along.
 (def convert (fn (_ v target . extra) (apply %cvt (pair v (pair target extra)))))
 

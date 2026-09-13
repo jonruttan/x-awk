@@ -3,14 +3,14 @@
 #
 # ## tests/spec-runner.sh -- the bundle's runner
 #
-# @description Sources the PLATFORM's spec runner; vendors nothing.
+# @description Sources the platform's spec runner; vendors nothing.
 # @author [Jon Ruttan](jonruttan@gmail.com)
 # @copyright 2026 Jon Ruttan
 # @license MIT No Attribution (MIT-0)
 #
-# NOT ONE PATH INTO THE X-LANG SOURCE TREE.  Everything here comes from x
-# itself: --share-dir says which tree x reads from (repo root in a checkout,
-# share/x installed) and --engine-path says where the engine is.
+# No path reaches into an x-lang source tree; everything comes from x itself:
+# --share-dir says which tree x reads from (repo root in a checkout, share/x
+# when installed) and --engine-path says where the engine is.
 #
 # Set X to point at a particular x; otherwise the one on PATH is used.
 set -e
@@ -26,8 +26,9 @@ command -v "$X" >/dev/null 2>&1 || {
 X_ROOT="$("$X" --share-dir)"
 X_BIN="${X_BIN:-$("$X" --engine-path)}"
 
-# REQUIRED FROM AN INSTALLED TREE: the runner finds its harness from the
-# directory holding the ENGINE, which is only true in a checkout.
+# The platform runner locates its harness relative to the engine binary, which
+# sits beside tests/ only in a checkout; a sourced script cannot portably find
+# its own path, so the caller sets this.
 SPEC_RUNNER_DIR="$X_ROOT/tests"
 export SPEC_RUNNER_DIR
 
@@ -39,21 +40,18 @@ LANG_LIB="$BUNDLE/tests/lib/harness.gen.x"
 # SPEC_PATH is env-overridable so a single spec file can be run in isolation.
 SPEC_PATH="${SPEC_PATH:-$BUNDLE/tests/specs}"
 
-# THE SUITE BOOTS FROM A STATE IMAGE OF THE HARNESS, when the platform can
-# write one.  tools/dev/image-build.sh images a child that loaded the
-# harness and keys the image on everything it depends on -- the harness,
-# the platform's lib/, its engine, and awk/ (the KEY-PATH) -- so an edit
-# to any of them rewrites it (a few seconds) and a current one is skipped.
-# Each spec file then loads in about a second instead of booting x-base.x
-# from source.  The writer lives in a CHECKOUT only; an installed tree
-# boots from source and says so, and so does a checkout whose engine
-# predates x-engine-c v0.2.8 (the writer refuses x-base.x's compiled
-# tower there; tests/gen-harness.sh has the story).  IMG=0 is the control:
-# the suite from source, for when the image is the suspect -- one file per
-# process there too (SPEC_BATCH=1, the shape the image run has), so the
-# boot is the only difference between the two runs.  That makes the control
-# slow (every file boots x-base.x: 140s against 21s from the image and 43s
-# batched eight to a process, 2026-09-06), which is the price of a control
+# The suite boots from a state image of the harness when the platform can write
+# one. tools/dev/image-build.sh images a child that loaded the harness, keyed on
+# what it depends on (the harness, the platform's lib/, its engine, and awk/),
+# so an edit to any of them rewrites the image and a current one is reused. Each
+# spec file then loads in about a second instead of booting x-base.x from
+# source.
+#
+# The writer lives in a checkout only; an installed tree boots from source and
+# says so, as does a checkout whose engine predates x-engine-c v0.2.8 (the
+# writer refuses x-base.x's compiled tower there; tests/gen-harness.sh has the
+# story). IMG=0 is the control: the suite from source, one file per process, so
+# the boot is the only difference -- which makes it slow, the price of a control
 # that differs in exactly one thing.
 if [ "${IMG:-1}" = 0 ]; then
 	SPEC_BATCH="${SPEC_BATCH:-1}"; export SPEC_BATCH
@@ -70,9 +68,9 @@ else
 	fi
 fi
 
-# NO COLLECT AT THE SNIPPET SEAM (x-lang#568/#572): the per-seam heap collect
-# killed x-ash's and x-python's suites; x-awk sets the same knob for the same
-# reason rather than rediscovering it.
+# No collect at the snippet seam (x-lang#568/#572): the per-seam heap collect
+# kills the suites of bundles whose reader holds C-side state, so this sets the
+# same knob x-ash and x-python do.
 export SPEC_SEAM_COLLECT=0
 
 . "$X_ROOT/tests/spec-runner.sh"
