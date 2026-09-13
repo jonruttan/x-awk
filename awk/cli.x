@@ -6,17 +6,16 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; THE INVOCATION IS  x -l awk -- [-F ere] [-v a=v]... [-f progfile]...
+; The invocation is  x -l awk -- [-F ere] [-v a=v]... [-f progfile]...
 ;                    ['program'] [file | a=v]...
-; The `--` matters: x.sh's own option loop claims -F, -v and -f for
-; itself, and `--` is the first token it declines -- everything after it
-; arrives here untouched.  Without `--` the same options still work
-; PLACED AFTER the program text, since x.sh stops at the first
-; non-option operand.
+; The `--` matters: x.sh's own option loop claims -F, -v and -f, and `--` is
+; the first token it declines, so everything after arrives here untouched.
+; Without `--` the same options work placed after the program text, since x.sh
+; stops at the first non-option operand.
 ;
-; Parsing is split pure/effectful on the spec seam: awk-argv and
-; awk-parse-cli are pure functions the suite exercises; awk-main is the
-; few effectful lines that read progfiles, run, and exit.
+; Parsing is split pure/effectful on the spec seam: awk-argv and awk-parse-cli
+; are pure functions the suite exercises; awk-main is the few effectful lines
+; that read progfiles, run, and exit.
 
 ; The engine flags x.sh plants ahead of the operands, plus argv0.
 (def %awk-cli-engine-flag?

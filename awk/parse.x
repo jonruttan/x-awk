@@ -6,12 +6,12 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; GRAMMAR ONLY (crafting-a-lang.md section 3): this file knows tokens and
-; AST shapes, never what an operator means.  Every function is PURE and
-; answers (ast . remaining-tokens) -- the lib/x/type/regex.x threading, so
-; lookahead is free: peek by parsing ahead and discarding.
+; Grammar only (crafting-a-lang.md section 3): this file knows tokens and AST
+; shapes, never what an operator means. Every function is pure and answers
+; (ast . remaining-tokens) -- the lib/x/type/regex.x threading, so lookahead is
+; free: peek by parsing ahead and discarding.
 ;
-; THE AST (what the parser specs assert):
+; The AST (what the parser specs assert):
 ;   items:  (begin STMTS) (end STMTS) (rule PAT ACTION)
 ;           PAT () = every record; ACTION () = print $0
 ;   stmts:  (print ARGS) (printf ARGS) (if C T E) (while C B) (do B C)
@@ -26,15 +26,13 @@
 ;           (preinc LV) (postinc LV) (predec LV) (postdec LV)
 ;           (call NAME ARGS)
 ;
-; EREs COMPILE HERE, once: the lexer hands pattern TEXT, the AST carries the
-; compiled regex.  A pattern that does not compile fails at parse time with
-; the program position still known, not at the first record.
+; EREs compile here, once: the lexer hands pattern text, the AST carries the
+; compiled regex, and a pattern that does not compile fails at parse time with
+; the program position known, not at the first record.
 ;
-; PRINT FORBIDS BARE `>` (gt=#f threads down the ladder): in awk,
-; `print a > b` REDIRECTS, and redirection is not built yet.  Refusing the
-; token is louder than silently comparing -- the crafting doc's rule that a
-; loud error beats a silent wrong number.  Parenthesized comparison
-; (`print (a > b)`) parses fine.
+; print forbids a bare `>` (gt=#f threads down the ladder): `print a > b`
+; redirects, and redirection is not built yet, so refusing the token beats
+; silently comparing. Parenthesized comparison (`print (a > b)`) parses fine.
 
 ; --- Token peeks -------------------------------------------------------------
 

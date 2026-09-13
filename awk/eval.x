@@ -6,27 +6,25 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; MEANING LIVES HERE (crafting-a-lang.md section 3): the parser emits shapes,
-; this file says what they do.  awk-run is the pure core -- program text and
-; input text in, print output to stdout, no other doors -- which is what
-; keeps the specs one-line.
+; The parser emits shapes; this file says what they do (crafting-a-lang.md
+; section 3). awk-run is the pure core -- program text and input in, print
+; output to stdout, no other doors -- which keeps the specs one-line.
 ;
-; THE VALUE MODEL, POSIX's three kinds plus absence:
-;   number   an x NUMBER, and EXACT: the lexer parses 1.5 as 3/2, and all
-;            arithmetic stays rational.  awk's doubles are an implementation
-;            detail of C awk; the observable contract is the FORMATTING
-;            (%.6g at output), which %awk-num->str reproduces from exact
-;            values.  Divergence: float-roundoff artifacts (0.1+0.2 != 0.3
-;            territory) do not occur here -- recorded as a pending spec.
+; The value model, POSIX's three kinds plus absence:
+;   number   an x NUMBER, and exact: the lexer parses 1.5 as 3/2 and
+;            arithmetic stays rational. The observable contract is the
+;            formatting (%.6g at output), which %awk-num->str reproduces from
+;            exact values; float-roundoff artifacts do not occur here (a
+;            pending spec).
 ;   string   an x string.
-;   strnum   (strnum "text" N) -- a value from INPUT that looks numeric.
-;            Fields carry these; POSIX's comparison table needs to know a
-;            value's provenance, and this tag is that fact.
-;   uninit   nil.  "" in string context, 0 in numeric context, false.
+;   strnum   (strnum "text" N) -- a value from input that looks numeric.
+;            Fields carry these, and POSIX's comparison table needs a value's
+;            provenance, which this tag records.
+;   uninit   nil. "" in string context, 0 in numeric context, false.
 ;
-; PER-RUN STATE IS RESET AT THE ENTRY POINT, never restored at exits (the
-; crafting doc's rule: a raise skips your restore).  Everything mutable
-; lives in a handful of module globals set! fresh by awk-run.
+; Per-run state is reset at the entry point, never restored at exits (a raise
+; skips a restore): everything mutable lives in module globals set! fresh by
+; awk-run.
 
 ; --- Run state ---------------------------------------------------------------
 
@@ -50,13 +48,12 @@
 (def %awk-sigpipe? #f)    ; SIGPIPE ignored for open output pipes?
 (def %awk-exit-code 0)    ; what exit carried; awk-main's status
 
-; THE HOT-VARIABLE BOXES, cached once per run by %awk-reset!.  A var's
-; box is stable for the run (%awk-var-set! mutates in place, the env
-; only ever prepends), so the per-record path reads and writes these
-; directly instead of scanning the env alist by name -- and the
-; per-record path also avoids match/unless (regex.x's #343 discipline:
-; operatives expand per evaluation, ~330 objects each, and at one
-; expansion per record that was most of the 550KB/record garbage).
+; The hot-variable boxes, cached once per run by %awk-reset!. A var's box is
+; stable for the run (%awk-var-set! mutates in place, the env only prepends),
+; so the per-record path reads and writes these directly rather than scanning
+; the env alist by name -- and it avoids match/unless, whose operatives expand
+; per evaluation (regex.x's #343 discipline) and were most of the per-record
+; garbage.
 (def %awk-nr-box ())
 (def %awk-fnr-box ())
 (def %awk-nf-box ())
@@ -242,15 +239,10 @@
 
 ; --- Number formatting: %.6g from exact values -------------------------------
 
-; trunc toward zero, via the probed fact that (% x 1) answers the
-; fractional part for a non-negative rational.  The (+ 0 ...) was
-; load-bearing against a tower defect, SINCE FIXED in x-lang: rational
-; cross products wrapped past 2^63 and 2+-limb bigints never demoted,
-; so SUBTRACT at large denominators could answer a non-demoted
-; denominator-1 value, and a digit loop computing (+ 48 d) handed
-; integer->char garbage.  On a fixed tree the subtract demotes on its
-; own (probed: (- 14142135623731/10^13 (% same 1)) is eq? to 1); the
-; (+ 0 ...) stays as a no-cost guard for older platform trees.
+; trunc toward zero, via the fact that (% x 1) is the fractional part of a
+; non-negative rational. The (+ 0 ...) is a no-cost guard for older platform
+; trees whose numeric tower could leave a subtract non-demoted at large
+; denominators; a current tree demotes on its own.
 (def %awk-trunc
   (fn (_ x)
     (+ 0
@@ -442,13 +434,12 @@
                   (self (rest ts) (+ i 1))))))
         (go texts 1)))))
 
-; sub(re, repl [, target]) and gsub -- replace in place, answer the count.
-; The target passes BY NAME like split's array: it must be an l-value
-; (default $0), and the write goes through %awk-lval-set!, so a field
-; target rebuilds $0 exactly as a plain field assignment would.  In repl,
-; & is the matched text, \& a literal &, \\ a backslash -- awk's rules,
-; NOT the $N expansion Regex replace-all carries, which is why the loop
-; lives here instead of riding that method.
+; sub(re, repl [, target]) and gsub -- replace in place, answer the count. The
+; target passes by name like split's array: an l-value (default $0), written
+; through %awk-lval-set!, so a field target rebuilds $0 as a plain field
+; assignment would. In repl, & is the matched text, \& a literal &, \\ a
+; backslash -- awk's rules, not the $N expansion Regex replace-all carries,
+; which is why the loop lives here rather than riding that method.
 (def %awk-sub-expand
   (fn (_ repl matched)
     (def end (string-length repl))
@@ -1210,11 +1201,10 @@
 (def %awk-print!
   (fn (_ args) (display (%awk-print-str args))))
 
-; MATCH CLAUSES ARE SINGLE-BODY, and a statement's value is its CONTROL:
-; every clause here wraps side effects in (do ... ()) so an expression's
-; value -- an assignment answers what it assigned -- can never leak out as
-; a control and abort the enclosing block.  Both halves of that were
-; found the hard way; the probes live in the suite's history.
+; Match clauses are single-body, and a statement's value is its control: every
+; clause wraps side effects in (do ... ()) so an expression's value -- an
+; assignment answers what it assigned -- cannot leak out as a control and abort
+; the enclosing block.
 (set! %awk-exec
   (fn (_ stmt)
     (def tag (first stmt))

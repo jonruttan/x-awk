@@ -6,20 +6,19 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; %awk-sprintf FMT VALS -> string.  Serves printf, sprintf, and -- through
-; OFMT/CONVFMT -- every number-to-string conversion in the bundle, so the
-; one engine owns all rendering.  Conversions: d i o x X u c s f e E g G %%
-; with the flags - + space 0 #, width, precision, and * for either.
+; %awk-sprintf FMT VALS -> string. Serves printf, sprintf, and -- through
+; OFMT/CONVFMT -- every number-to-string conversion in the bundle, so one
+; engine owns all rendering. Conversions: d i o x X u c s f e E g G %% with the
+; flags - + space 0 #, width, precision, and * for either.
 ;
-; EXACT ALL THE WAY DOWN: the value arrives rational, and every digit here
-; comes from integer arithmetic on it -- no doubles anywhere.  Rounding is
-; HALF-UP; C's doubles round half-EVEN, so %.0f of 2.5 answers 3 here and
-; 2 there -- a recorded pending divergence, not a surprise.  Negative
-; values under x/X/o/u render sign-prefixed rather than wrapping to
-; unsigned long, same status.
+; Exact all the way down: the value arrives rational and every digit comes from
+; integer arithmetic on it. Rounding is half-up where C's doubles round
+; half-even, so %.0f of 2.5 is 3 here and 2 there (a recorded pending
+; divergence); negative values under x/X/o/u render sign-prefixed rather than
+; wrapping to unsigned, same status.
 ;
-; Not enough arguments is a RAISE: the one-true-awk errors here too, and
-; a silently-substituted zero is the crafting doc's silent wrong number.
+; Not enough arguments is a raise, as in the one-true-awk: a silently
+; substituted zero would be a silent wrong number.
 
 ; n >= 0 integer to digits in base (2..16).
 (def %awk-fmt-digits

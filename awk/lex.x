@@ -6,11 +6,11 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; A STRING SCANNER, the lib/x/type/regex.x shape: an index walked down the
-; source with string-ref, tokens consed in reverse and flipped once.  No
-; reader base -- see awk/base.x for why.
+; A string scanner (the lib/x/type/regex.x shape): an index walked down the
+; source with string-ref, tokens consed in reverse and flipped once. No reader
+; base -- see awk/base.x for why.
 ;
-; TOKENS (what the parser sees, and what the lexer specs assert):
+; Tokens (what the parser sees, and what the lexer specs assert):
 ;   (num N)      numeric constant, already a NUMBER (exact -- see eval.x)
 ;   (str "s")    string constant, escapes processed
 ;   (ere "pat")  /pattern/ text, compiled at PARSE time
@@ -19,11 +19,11 @@
 ;   (op "s")     operator or punctuation, multi-char folded: == <= && ++ ...
 ;   (nl)         newline -- a statement terminator, runs collapsed to one
 ;
-; THE / AMBIGUITY is awk's one lexing subtlety: `a/b` divides, `/re/`
-; matches.  POSIX resolves it by context and so does this lexer: a `/` is
-; division only when the PREVIOUS token could end an expression -- a
-; constant, a name, `)` or `]`, or the ERE it would close -- and starts a
-; regex everywhere else.  One boolean threaded down the scan carries it.
+; The `/` ambiguity is awk's one lexing subtlety: `a/b` divides, `/re/`
+; matches. POSIX resolves it by context and so does this lexer: a `/` is
+; division only when the previous token could end an expression -- a constant,
+; a name, `)` or `]`, or the ERE it would close -- and starts a regex
+; everywhere else. One boolean threaded down the scan carries it.
 
 ; --- Character predicates (codes, not chars: one cast per character) ---------
 
