@@ -189,7 +189,7 @@
     (def j (rest r))
     (pair
       (match
-        ((%awk-kw? s) (list (lit kw) (convert s %symbol)))
+        ((%awk-kw? s) (list (lit kw) (convert s %awk-symbol-type)))
         ((if (< j end) (= (string-ref src j) #\() #f)
           (list (lit funcname) s))
         (#t (list (lit name) s)))
