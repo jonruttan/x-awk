@@ -63,8 +63,13 @@
 (def string? (fn (_ s) (str? s)))
 (def make-string (fn (_ n c) (Str8 make n c)))
 
+; The type handles convert is asked for, fetched by name through the
+; platform's public door.  awk/lex.x reads %awk-symbol-type.
+(def %awk-string-type (Type named STRING))
+(def %awk-symbol-type (Type named SYMBOL))
+
 (def %cvt (prim-ref (lit convert) (lit to)))
-(def list->string (fn (_ l) (if (null? l) "" (%cvt l %string))))
+(def list->string (fn (_ l) (if (null? l) "" (%cvt l %awk-string-type))))
 ; No explicit receiver: every call fills the `_` slot implicitly, apply
 ; included, so passing one by hand shifts every argument along.
 (def convert (fn (_ v target . extra) (apply %cvt (pair v (pair target extra)))))
@@ -105,7 +110,7 @@
 ; --- The float boundary ------------------------------------------------------
 ; (Float from) takes any exact number; the transcendentals are libm.
 (def float-from (fn (_ x) (Float from x)))
-(def float->string (fn (_ f) (%cvt f %string)))
+(def float->string (fn (_ f) (%cvt f %awk-string-type)))
 (def float-sin (fn (_ f) (Float sin f)))
 (def float-cos (fn (_ f) (Float cos f)))
 (def float-exp (fn (_ f) (Float exp f)))
