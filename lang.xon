@@ -27,13 +27,13 @@
 ; (measured 2026-09-02; the x-coreutils manifest has the numbers).
 (dialect he)
 
-; The x-lang release this bundle is built and tested against. v0.15.0 is a real
+; The x-lang release this bundle is built and tested against. v0.15.0 is the
 ; floor: awk/prims.x fetches the platform's type handles through
 ; (Type named ...), which no earlier release provides. v0.12.0 was the floor
 ; before it -- it pins the engine (x-engine-c v0.2.8) on which x-base.x writes
 ; a state image, and the suite boots from one (tests/gen-harness.sh) -- and
 ; v0.10.0 the floor for the lang itself: the stdin slurp's 64K chunks need its
 ; Str8 make stack fix.
-(requires-release "v0.15.0")
+(requires-release "v0.17.0")
 
 (entry "run.x")
