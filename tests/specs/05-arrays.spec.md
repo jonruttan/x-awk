@@ -83,7 +83,7 @@ join with SUBSEP.  Every expectation here came from a real awk run.
 ---
     2
 
-### the key is input-shaped: numeric text compares numerically
+### the key follows the input: numeric text compares numerically
 
 ```awk
 (awk-run "BEGIN{a[10]=1; for (k in a) print (k==10)}" "")
@@ -135,7 +135,7 @@ join with SUBSEP.  Every expectation here came from a real awk run.
 ---
     3 c
 
-### elements are input-shaped: numeric text compares numerically
+### elements follow the input: numeric text compares numerically
 
 ```awk
 (awk-run "BEGIN{split(\"10 9\", arr); print (arr[1] > arr[2])}" "")
@@ -153,7 +153,7 @@ join with SUBSEP.  Every expectation here came from a real awk run.
 
 ## in anger
 
-### the word-count shape
+### the classic word-count one-liner
 
 ```awk
 (awk-run "{for (i=1; i<=NF; i++) sum[$i]++} END{print sum[\"a\"]}" "a b\na c\n")

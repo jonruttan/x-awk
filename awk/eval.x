@@ -6,11 +6,11 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; The parser emits shapes; this file says what they do (crafting-a-lang.md
+; The parser emits variants; this file says what they do (crafting-a-lang.md
 ; section 3). awk-run is the pure core -- program text and input in, print
 ; output to stdout, no other doors -- which keeps the specs one-line.
 ;
-; The value model, POSIX's three kinds plus absence:
+; The value model, POSIX's three types plus absence:
 ;   number   an x NUMBER, and exact: the lexer parses 1.5 as 3/2 and
 ;            arithmetic stays rational. The observable contract is the
 ;            formatting (%.6g at output), which %awk-num->str reproduces from
@@ -19,7 +19,7 @@
 ;   string   an x string.
 ;   strnum   (strnum "text" N) -- a value from input that looks numeric.
 ;            Fields carry these, and POSIX's comparison table needs a value's
-;            provenance, which this tag records.
+;            provenance, which this label records.
 ;   uninit   nil. "" in string context, 0 in numeric context, false.
 ;
 ; Per-run state is reset at the entry point, never restored at exits (a raise
@@ -40,7 +40,7 @@
 (def %awk-any-file? #f)   ; has any input source been opened yet?
 (def %awk-stdin-text "")  ; stdin's content: preset by awk-run, read
                           ; from fd 3 once by the CLI (see below)
-(def %awk-stdin-mode (lit text))  ; text (preset) | fd (reclaim and read)
+(def %awk-stdin-label (lit text))  ; text (preset) | fd (reclaim and read)
 (def %awk-outs ())        ; print redirection: ((path . fd) ...)
 (def %awk-ins ())         ; getline < file: ((path . recs-box) ...)
 (def %awk-cmd-ins ())     ; "cmd" | getline: ((cmd . recs-box) ...)
@@ -816,8 +816,8 @@
           rec)))))
 
 ; close(name): drop the read stream and/or close the write fd for the
-; path.  0 when something closed, -1 when nothing was open -- awk's
-; answer shape.
+; path.  0 when something closed, -1 when nothing was open -- what awk
+; expects here.
 (def %awk-close-name!
   (fn (_ path)
     (def del
@@ -922,13 +922,13 @@
 ; bundle.  Ordered by expected frequency; no inner def (globals per call).
 (set! %awk-eval
   (fn (_ node)
-    (let ((tag (first node)))
-    (if (eq? tag (lit var)) (%awk-var-get (first (rest node)))
-    (if (eq? tag (lit num)) (first (rest node))
-    (if (eq? tag (lit str)) (first (rest node))
-    (if (eq? tag (lit field))
+    (let ((label (first node)))
+    (if (eq? label (lit var)) (%awk-var-get (first (rest node)))
+    (if (eq? label (lit num)) (first (rest node))
+    (if (eq? label (lit str)) (first (rest node))
+    (if (eq? label (lit field))
       (%awk-field-get (%awk-to-num (%awk-eval (first (rest node)))))
-    (if (eq? tag (lit cmp))
+    (if (eq? label (lit cmp))
       (let ((op (first (rest node))))
         (let ((c (%awk-cmp (%awk-eval (first (rest (rest node))))
                    (%awk-eval (first (rest (rest (rest node))))))))
@@ -939,15 +939,15 @@
                   (if (string=? op ">=") (>= c 0)
                     (if (string=? op "==") (= c 0)
                       (not (= c 0))))))))))
-    (if (eq? tag (lit concat))
+    (if (eq? label (lit concat))
       (string-append (%awk-to-str (%awk-eval (first (rest node))))
         (%awk-to-str (%awk-eval (first (rest (rest node))))))
-    (if (eq? tag (lit assign))
+    (if (eq? label (lit assign))
       (let ((v (%awk-eval (first (rest (rest node))))))
         (if (%awk-array? v)
           (Err raise (lit awk) "awk: an array cannot be assigned" ())
           (do (%awk-lval-set! (first (rest node)) v) v)))
-    (if (eq? tag (lit bin))
+    (if (eq? label (lit bin))
       (let ((op (first (rest node))))
         (let ((a (%awk-to-num (%awk-eval (first (rest (rest node)))))))
           (let ((b (%awk-to-num
@@ -963,45 +963,45 @@
                         "awk: unknown operator" op)))))))))
     ; a[k]: the shared l-value path -- which CREATES the element,
     ; POSIX's rule for mentioning a subscript.
-    (if (eq? tag (lit index)) (%awk-lval-get node)
-    (if (eq? tag (lit and))
+    (if (eq? label (lit index)) (%awk-lval-get node)
+    (if (eq? label (lit and))
       (%awk-bool
         (if (%awk-truthy? (%awk-eval (first (rest node))))
           (%awk-truthy? (%awk-eval (first (rest (rest node)))))
           #f))
-    (if (eq? tag (lit or))
+    (if (eq? label (lit or))
       (%awk-bool
         (if (%awk-truthy? (%awk-eval (first (rest node))))
           #t
           (%awk-truthy? (%awk-eval (first (rest (rest node)))))))
-    (if (eq? tag (lit not))
+    (if (eq? label (lit not))
       (%awk-bool (not (%awk-truthy? (%awk-eval (first (rest node))))))
-    (if (eq? tag (lit match))
+    (if (eq? label (lit match))
       (%awk-bool
         (not (null?
           (regex-search (%awk-to-str (%awk-eval (first (rest node))))
             (%awk-match-rx (first (rest (rest node))))))))
-    (if (eq? tag (lit nomatch))
+    (if (eq? label (lit nomatch))
       (%awk-bool
         (null?
           (regex-search (%awk-to-str (%awk-eval (first (rest node))))
             (%awk-match-rx (first (rest (rest node)))))))
     ; (k in a): membership WITHOUT creating -- the counterpart rule.
-    (if (eq? tag (lit in))
+    (if (eq? label (lit in))
       (let ((av (%awk-var-get (first (rest (rest node))))))
         (%awk-bool
           (if (%awk-array? av)
             (%awk-arr-has? av (%awk-to-str (%awk-eval (first (rest node)))))
             #f)))
-    (if (eq? tag (lit ternary))
+    (if (eq? label (lit ternary))
       (if (%awk-truthy? (%awk-eval (first (rest node))))
         (%awk-eval (first (rest (rest node))))
         (%awk-eval (first (rest (rest (rest node))))))
-    (if (eq? tag (lit preinc)) (%awk-incr! (first (rest node)) 1 #t)
-    (if (eq? tag (lit postinc)) (%awk-incr! (first (rest node)) 1 #f)
-    (if (eq? tag (lit predec)) (%awk-incr! (first (rest node)) (- 0 1) #t)
-    (if (eq? tag (lit postdec)) (%awk-incr! (first (rest node)) (- 0 1) #f)
-    (if (eq? tag (lit call))
+    (if (eq? label (lit preinc)) (%awk-incr! (first (rest node)) 1 #t)
+    (if (eq? label (lit postinc)) (%awk-incr! (first (rest node)) 1 #f)
+    (if (eq? label (lit predec)) (%awk-incr! (first (rest node)) (- 0 1) #t)
+    (if (eq? label (lit postdec)) (%awk-incr! (first (rest node)) (- 0 1) #f)
+    (if (eq? label (lit call))
       (let ((nm (first (rest node))))
         (if (string=? nm "split")
           (%awk-split-call (first (rest (rest node))))
@@ -1014,14 +1014,14 @@
                 (%awk-builtin nm
                   (map (fn (_ a) (%awk-eval a))
                     (first (rest (rest node))))))))))
-    (if (eq? tag (lit ucall))
+    (if (eq? label (lit ucall))
       (%awk-ucall (first (rest node)) (first (rest (rest node))))
-    (if (eq? tag (lit ere))
+    (if (eq? label (lit ere))
       ; a bare /ere/ in expression position asks: does $0 match?
       (%awk-bool (not (null? (regex-search %awk-f0 (first (rest node))))))
-    (if (eq? tag (lit neg))
+    (if (eq? label (lit neg))
       (- 0 (%awk-to-num (%awk-eval (first (rest node)))))
-    (if (eq? tag (lit pow))
+    (if (eq? label (lit pow))
       (let ((a (%awk-to-num (%awk-eval (first (rest node))))))
         (let ((e (%awk-to-num (%awk-eval (first (rest (rest node)))))))
           (if (not (= 0 (% e 1)))
@@ -1035,7 +1035,7 @@
     ; ($0, NF); the var form stores the text only.  The MAIN form counts
     ; NR/FNR; file and pipe forms touch neither (the one-true-awk
     ; reading).
-    (if (eq? tag (lit getline))
+    (if (eq? label (lit getline))
       (let ((src (first (rest (rest node)))))
         (let ((rec (if (null? src)
                      (%awk-next-record!)
@@ -1051,7 +1051,7 @@
                     (%awk-lval-set! (first (rest node))
                       (%awk-input-val rec)))
                   1)))))
-      (Err raise (lit awk) "awk: unknown expression" tag)
+      (Err raise (lit awk) "awk: unknown expression" label)
       )))))))))))))))))))))))))))))
 
 ; --- Statements --------------------------------------------------------------
@@ -1100,10 +1100,10 @@
       (map (fn (_ a) (%awk-eval a)) (rest args)))))
 
 ; The redirection table: one fd per target path, opened on first use
-; with the statement's mode (> truncates, >> appends), shared by every
+; with the statement's label (> truncates, >> appends), shared by every
 ; later print to the same target whatever its arrow -- awk's own rule.
 (def %awk-out-fd!
-  (fn (_ path mode)
+  (fn (_ path label)
     (def find
       (fn (self es)
         (if (null? es) ()
@@ -1112,7 +1112,7 @@
             (self (rest es))))))
     (def hit (find %awk-outs))
     (if (not (null? hit)) hit
-      (let ((fd (if (eq? mode (lit append))
+      (let ((fd (if (eq? label (lit append))
                   (file-open-append path)
                   (file-open-write path))))
         (if (< fd 0)
@@ -1207,37 +1207,37 @@
 ; the enclosing block.
 (set! %awk-exec
   (fn (_ stmt)
-    (def tag (first stmt))
+    (def label (first stmt))
     (match
-      ((eq? tag (lit print)) (do (%awk-print! (rest stmt)) ()))
-      ((eq? tag (lit printf))
+      ((eq? label (lit print)) (do (%awk-print! (rest stmt)) ()))
+      ((eq? label (lit printf))
         (do (display (%awk-printf-str (rest stmt))) ()))
-      ((eq? tag (lit printr))
-        (do (let ((mode (first (rest stmt))))
+      ((eq? label (lit printr))
+        (do (let ((label (first (rest stmt))))
               (def target (%awk-to-str (%awk-eval (first (rest (rest stmt))))))
               (file-write
-                (if (eq? mode (lit pipe))
+                (if (eq? label (lit pipe))
                   (%awk-cmd-out-fd! target)
-                  (%awk-out-fd! target mode))
+                  (%awk-out-fd! target label))
                 (%awk-print-str (first (rest (rest (rest stmt)))))))
             ()))
-      ((eq? tag (lit printfr))
-        (do (let ((mode (first (rest stmt))))
+      ((eq? label (lit printfr))
+        (do (let ((label (first (rest stmt))))
               (def target (%awk-to-str (%awk-eval (first (rest (rest stmt))))))
               (file-write
-                (if (eq? mode (lit pipe))
+                (if (eq? label (lit pipe))
                   (%awk-cmd-out-fd! target)
-                  (%awk-out-fd! target mode))
+                  (%awk-out-fd! target label))
                 (%awk-printf-str (first (rest (rest (rest stmt)))))))
             ()))
-      ((eq? tag (lit expr)) (do (%awk-eval (first (rest stmt))) ()))
-      ((eq? tag (lit block)) (%awk-exec-list (first (rest stmt))))
-      ((eq? tag (lit if))
+      ((eq? label (lit expr)) (do (%awk-eval (first (rest stmt))) ()))
+      ((eq? label (lit block)) (%awk-exec-list (first (rest stmt))))
+      ((eq? label (lit if))
         (if (%awk-truthy? (%awk-eval (first (rest stmt))))
           (%awk-exec (first (rest (rest stmt))))
           (let ((e (first (rest (rest (rest stmt))))))
             (if (null? e) () (%awk-exec e)))))
-      ((eq? tag (lit while))
+      ((eq? label (lit while))
         (let ((loop ()))
           (set! loop
             (fn (self)
@@ -1250,7 +1250,7 @@
                     (#t c)))
                 ())))
           (loop)))
-      ((eq? tag (lit do))
+      ((eq? label (lit do))
         (let ((loop ()))
           (set! loop
             (fn (self)
@@ -1263,7 +1263,7 @@
                       (self) ()))
                   (#t c)))))
           (loop)))
-      ((eq? tag (lit for))
+      ((eq? label (lit for))
         (let ((init (first (rest stmt))))
           (def c-node (first (rest (rest stmt))))
           (def u-node (first (rest (rest (rest stmt)))))
@@ -1283,7 +1283,7 @@
                       (#t c)))
                   ())))
             (loop))))
-      ((eq? tag (lit for-in))
+      ((eq? label (lit for-in))
         (let ((vname (first (rest stmt))))
           (def av (%awk-var-get (first (rest (rest stmt)))))
           (def body (first (rest (rest (rest stmt)))))
@@ -1292,7 +1292,7 @@
             ((%awk-array? av)
               ; a SNAPSHOT of the keys: the body may delete or add
               ; entries without disturbing this walk.  The key arrives
-              ; as input-shaped (strnum when numeric) -- k==10 works.
+              ; following the input (strnum when numeric) -- k==10 works.
               (let ((walk ()))
                 (set! walk
                   (fn (self ks)
@@ -1307,7 +1307,7 @@
                 (walk (%awk-arr-keys av))))
             (#t (Err raise (lit awk)
                   "awk: for-in over a scalar" ())))))
-      ((eq? tag (lit delete))
+      ((eq? label (lit delete))
         (do (let ((av (%awk-var-get (first (rest stmt)))))
               (def subs (first (rest (rest stmt))))
               (if (%awk-array? av)
@@ -1316,21 +1316,21 @@
                   (%awk-arr-del! av (%awk-subs-key subs)))
                 ()))
             ()))
-      ((eq? tag (lit next)) (list (lit next)))
-      ((eq? tag (lit break)) (list (lit break)))
-      ((eq? tag (lit continue)) (list (lit continue)))
-      ((eq? tag (lit exit))
+      ((eq? label (lit next)) (list (lit next)))
+      ((eq? label (lit break)) (list (lit break)))
+      ((eq? label (lit continue)) (list (lit continue)))
+      ((eq? label (lit exit))
         ; the status records here -- the ONE place exit's value is
         ; known -- so every consumer of the control needs no plumbing
         (let ((code (if (null? (first (rest stmt))) %awk-exit-code
                       (%awk-trunc (%awk-to-num (%awk-eval (first (rest stmt))))))))
           (set! %awk-exit-code code)
           (list (lit exit) code)))
-      ((eq? tag (lit return))
+      ((eq? label (lit return))
         (list (lit return)
           (if (null? (first (rest stmt))) ()
             (%awk-eval (first (rest stmt))))))
-      (#t (Err raise (lit awk) "awk: unknown statement" tag)))))
+      (#t (Err raise (lit awk) "awk: unknown statement" label)))))
 
 ; --- The record loop ---------------------------------------------------------
 
@@ -1376,10 +1376,10 @@
 ; Stdin's text, read once.  Under the CLI the boot pipe occupies fd 0
 ; and the caller's stdin waits on fd 3 (the platform's arrangement --
 ; see lib/x/repl/loop.x); reclaiming is one dup2.  A second call in
-; either mode answers the cached text's leavings: text mode presets.
+; under either label answers the cached text's leavings: text is preset.
 (def %awk-stdin-content!
   (fn (_)
-    (if (eq? %awk-stdin-mode (lit fd))
+    (if (eq? %awk-stdin-label (lit fd))
       (do (sys-dup2 3 0)
           (sys-close 3)
           (let ((slurp ()))
@@ -1396,11 +1396,11 @@
                     (self (pair chunk acc))
                     (string-concat (reverse acc))))))
             (set! %awk-stdin-text (slurp ()))
-            (set! %awk-stdin-mode (lit text))
+            (set! %awk-stdin-label (lit text))
             %awk-stdin-text))
       %awk-stdin-text)))
 
-; A var=value operand: NAME then =, POSIX's assignment shape.
+; A var=value operand: NAME then =, POSIX's assignment pattern.
 (def %awk-assign-operand?
   (fn (_ op)
     (def end (string-length op))
@@ -1520,7 +1520,7 @@
     (set! %awk-operands ())
     (set! %awk-any-file? #f)
     (set! %awk-stdin-text "")
-    (set! %awk-stdin-mode (lit text))
+    (set! %awk-stdin-label (lit text))
     (set! %awk-outs ())
     (set! %awk-ins ())
     (set! %awk-cmd-ins ())
@@ -1601,7 +1601,7 @@
   (fn (_ prog fs assigns operands)
     (def items (awk-parse prog))
     (%awk-reset!)
-    (set! %awk-stdin-mode (lit fd))
+    (set! %awk-stdin-label (lit fd))
     (set! %awk-operands operands)
     (unless (null? fs) (%awk-var-set! "FS" fs))
     (map (fn (_ a)

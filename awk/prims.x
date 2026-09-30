@@ -129,7 +129,7 @@
 (def file-open-append
   (fn (_ path) (File open path (list (lit wronly) (lit creat) (lit append)))))
 (def file-close (fn (_ fd) (File close fd)))
-; (File read)/(File write) are the raw syscall shapes: read fills a
+; (File read)/(File write) are the raw syscall patterns: read fills a
 ; buffer you allocate and answers the byte COUNT (0 at EOF); write
 ; wants an explicit size.  These wrappers speak strings.
 (def file-write
