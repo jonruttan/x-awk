@@ -7,7 +7,7 @@
 ; @license MIT No Attribution (MIT-0)
 ;
 ; Grammar only (crafting-a-lang.md section 3): this file knows tokens and AST
-; shapes, never what an operator means. Every function is pure and answers
+; variants, never what an operator means. Every function is pure and answers
 ; (ast . remaining-tokens) -- the lib/x/type/regex.x threading, so lookahead is
 ; free: peek by parsing ahead and discarding.
 ;
@@ -36,7 +36,7 @@
 
 ; --- Token peeks -------------------------------------------------------------
 
-(def %awk-p-tag
+(def %awk-p-label
   (fn (_ toks) (if (null? toks) (lit eof) (first (first toks)))))
 
 (def %awk-p-op?
@@ -63,7 +63,7 @@
 (def %awk-p-term?
   (fn (_ toks)
     (if (null? toks) #t
-      (if (eq? (%awk-p-tag toks) (lit nl)) #t
+      (if (eq? (%awk-p-label toks) (lit nl)) #t
         (if (%awk-p-op? toks ";") #t (%awk-p-op? toks "}"))))))
 
 (def %awk-p-err
@@ -140,16 +140,16 @@
   (fn (_ toks gt)
     (if (null? toks) (%awk-p-err "expected an expression" toks)
       (let ((tok (first toks)))
-        (def tag (first tok))
+        (def label (first tok))
         (match
-          ((eq? tag (lit num)) (pair tok (rest toks)))
-          ((eq? tag (lit str)) (pair tok (rest toks)))
-          ((eq? tag (lit ere))
+          ((eq? label (lit num)) (pair tok (rest toks)))
+          ((eq? label (lit str)) (pair tok (rest toks)))
+          ((eq? label (lit ere))
             (pair (list (lit ere) (regex-compile (first (rest tok))))
               (rest toks)))
           ; funcname: the lexer saw `name(` with no space -- a builtin
           ; call or a user call, by the name.
-          ((eq? tag (lit funcname))
+          ((eq? label (lit funcname))
             (let ((nm (first (rest tok))))
               (let ((r (%awk-p-args (rest (rest toks)))))
                 (pair
@@ -157,7 +157,7 @@
                     (list (lit call) nm (first r))
                     (list (lit ucall) nm (first r)))
                   (rest r)))))
-          ((eq? tag (lit name))
+          ((eq? label (lit name))
             (let ((nm (first (rest tok))))
               (match
                 ; a builtin tolerates space before its ( -- POSIX gives
@@ -174,7 +174,7 @@
           ; getline [var] [< expr]: main input, or a file.  The pipe
           ; form ("cmd" | getline) is still to come.
           ((%awk-p-kw? toks (lit getline))
-            (let ((lv (if (eq? (%awk-p-tag (rest toks)) (lit name))
+            (let ((lv (if (eq? (%awk-p-label (rest toks)) (lit name))
                         (list (lit var) (first (rest (first (rest toks)))))
                         ())))
               (def ts (if (null? lv) (rest toks) (rest (rest toks))))
@@ -274,14 +274,14 @@
 (def %awk-p-concat-start?
   (fn (_ toks)
     (if (null? toks) #f
-      (let ((tag (%awk-p-tag toks)))
+      (let ((label (%awk-p-label toks)))
         (match
-          ((eq? tag (lit num)) #t)
-          ((eq? tag (lit str)) #t)
-          ((eq? tag (lit ere)) #t)
-          ((eq? tag (lit name)) #t)
-          ((eq? tag (lit funcname)) #t)
-          ((eq? tag (lit op))
+          ((eq? label (lit num)) #t)
+          ((eq? label (lit str)) #t)
+          ((eq? label (lit ere)) #t)
+          ((eq? label (lit name)) #t)
+          ((eq? label (lit funcname)) #t)
+          ((eq? label (lit op))
             (let ((s (first (rest (first toks)))))
               (match
                 ((string=? s "(") #t)
@@ -317,7 +317,7 @@
       (fn (self acc ts)
         (if (if (%awk-p-op? ts "|") (%awk-p-kw? (rest ts) (lit getline)) #f)
           (let ((after (rest (rest ts))))
-            (def lv (if (eq? (%awk-p-tag after) (lit name))
+            (def lv (if (eq? (%awk-p-label after) (lit name))
                       (list (lit var) (first (rest (first after))))
                       ()))
             (self (list (lit getline) lv (list (lit cmd) acc))
@@ -356,7 +356,7 @@
     (def go
       (fn (self ts left)
         (if (%awk-p-kw? ts (lit in))
-          (if (eq? (%awk-p-tag (rest ts)) (lit name))
+          (if (eq? (%awk-p-label (rest ts)) (lit name))
             (self (rest (rest ts))
               (list (lit in) left (first (rest (first (rest ts))))))
             (%awk-p-err "expected an array name after in" ts))
@@ -463,18 +463,18 @@
 ; command -- the REDIRECTIONS, reachable precisely because the list was
 ; parsed with gt=#f.  The target is a concatenation-level expression.
 (def %awk-p-maybe-redir
-  (fn (_ plain-tag redir-tag args ts)
-    (def mode
+  (fn (_ plain-label redir-label args ts)
+    (def label
       (if (%awk-p-op? ts ">>") (lit append)
         (if (%awk-p-op? ts ">") (lit trunc)
           (if (%awk-p-op? ts "|") (lit pipe) ()))))
-    (if (null? mode)
-      (pair (pair plain-tag args) ts)
+    (if (null? label)
+      (pair (pair plain-label args) ts)
       (let ((t (%awk-p-concat (rest ts) #f)))
-        (pair (list redir-tag mode (first t) args) (rest t))))))
+        (pair (list redir-label label (first t) args) (rest t))))))
 
 ; The C-style for ladder: init ; cond ; update, each part optional.
-; The caller has consumed `for (` and ruled out the for-in shape.
+; The caller has consumed `for (` and ruled out the for-in pattern.
 (def %awk-p-for-c
   (fn (_ ts)
     (def init (if (%awk-p-op? ts ";") (pair () ts)
@@ -545,13 +545,13 @@
         (if (%awk-p-op? (rest toks) "(")
           (let ((ts (rest (rest toks))))
             ; for (NAME in NAME) is its own statement -- peek the exact
-            ; four-token shape before committing to the C-style ladder.
+            ; four-token pattern before committing to the C-style ladder.
             (def t2 (rest ts))
             (def t3 (if (pair? t2) (rest t2) ()))
             (def t4 (if (pair? t3) (rest t3) ()))
-            (if (if (eq? (%awk-p-tag ts) (lit name))
+            (if (if (eq? (%awk-p-label ts) (lit name))
                   (if (%awk-p-kw? t2 (lit in))
-                    (if (eq? (%awk-p-tag t3) (lit name))
+                    (if (eq? (%awk-p-label t3) (lit name))
                       (%awk-p-op? t4 ")") #f) #f) #f)
               (let ((b (%awk-p-body (rest t4))))
                 (pair
@@ -563,7 +563,7 @@
               (%awk-p-for-c ts)))
           (%awk-p-err "expected ( after for" (rest toks))))
       ((%awk-p-kw? toks (lit delete))
-        (if (eq? (%awk-p-tag (rest toks)) (lit name))
+        (if (eq? (%awk-p-label (rest toks)) (lit name))
           (let ((nm (first (rest (first (rest toks))))))
             (def ts (rest (rest toks)))
             (if (%awk-p-op? ts "[")
@@ -630,8 +630,8 @@
     (def t2 (rest toks))
     (def nm
       (match
-        ((eq? (%awk-p-tag t2) (lit funcname)) (first (rest (first t2))))
-        ((eq? (%awk-p-tag t2) (lit name)) (first (rest (first t2))))
+        ((eq? (%awk-p-label t2) (lit funcname)) (first (rest (first t2))))
+        ((eq? (%awk-p-label t2) (lit name)) (first (rest (first t2))))
         (#t (%awk-p-err "expected a function name" t2))))
     (def t3 (rest t2))
     (if (not (%awk-p-op? t3 "("))
@@ -641,7 +641,7 @@
           (fn (self ts acc)
             (match
               ((%awk-p-op? ts ")") (pair (reverse acc) (rest ts)))
-              ((eq? (%awk-p-tag ts) (lit name))
+              ((eq? (%awk-p-label ts) (lit name))
                 (let ((ts2 (rest ts)))
                   (if (%awk-p-op? ts2 ",")
                     (self (%awk-p-skip-nl (rest ts2))

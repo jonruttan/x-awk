@@ -17,7 +17,7 @@
 ; indentation -- and awk's token stream is flat; its one subtlety is that `/`
 ; divides or opens an ERE depending on the previous token, which a
 ; per-character analyse callback cannot see and a scanner threads as one
-; boolean. So: string-ref down the source, the lib/x/type/regex.x shape.
+; boolean. So: string-ref down the source, the lib/x/type/regex.x pattern.
 
 (import awk/prims)
 (import awk/printer)

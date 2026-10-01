@@ -6,7 +6,7 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; A string scanner (the lib/x/type/regex.x shape): an index walked down the
+; A string scanner (the lib/x/type/regex.x pattern): an index walked down the
 ; source with string-ref, tokens consed in reverse and flipped once. No reader
 ; base -- see awk/base.x for why.
 ;
@@ -174,7 +174,7 @@
 ; function name.  That adjacency is POSIX's own FUNC_NAME rule, and it is
 ; what disambiguates `f(1)` (a call) from `f (1)` (concatenation of f and
 ; a parenthesized 1).  The parser routes a funcname to a builtin or a
-; user call; the lexer only records the shape.
+; user call; the lexer only records the variant.
 (def %awk-lex-name
   (fn (_ src i end)
     (def go
@@ -220,13 +220,13 @@
 
 (def %awk-lex-div-after?
   (fn (_ tok)
-    (def tag (first tok))
+    (def label (first tok))
     (match
-      ((eq? tag (lit num)) #t)
-      ((eq? tag (lit str)) #t)
-      ((eq? tag (lit ere)) #t)
-      ((eq? tag (lit name)) #t)
-      ((eq? tag (lit op))
+      ((eq? label (lit num)) #t)
+      ((eq? label (lit str)) #t)
+      ((eq? label (lit ere)) #t)
+      ((eq? label (lit name)) #t)
+      ((eq? label (lit op))
         (let ((s (first (rest tok))))
           (if (string=? s ")") #t
             (if (string=? s "]") #t
