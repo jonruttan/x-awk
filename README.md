@@ -33,7 +33,7 @@ COMPLETE for the POSIX surface this bundle targets: what remains in
 `tests/specs/04-divergences.spec.md` is recorded divergences, not
 missing features.
 
-Paired with x-lang v0.19.0 (`lang.xon` is the checkable row).
+Paired with x-lang v0.20.0 (`lang.xon` is the checkable row).
 
 ## Try it
 
