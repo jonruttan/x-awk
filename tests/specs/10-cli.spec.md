@@ -40,6 +40,60 @@ file pins the pieces a spec can hold.
 ---
     ((fs) (assigns) (progfiles "a.awk" "b.awk") (prog) (argv "f1"))
 
+### options stop at the first operand; a -F given twice keeps the last
+
+```awk
+(write (awk-parse-cli (list "-F" "a" "-F:" "p" "-v" "x=1")))
+```
+---
+    ((fs . ":") (assigns) (progfiles) (prog . "p") (argv "-v" "x=1"))
+
+### a line that does not run parses to nil: an option awk does not take, a -v that is not name=value
+
+```awk
+(write (list (awk-parse-cli (list "-Q" "p")) (awk-parse-cli (list "-v" "x" "p")) (awk-parse-cli (list "-F"))))
+```
+---
+    (() () ())
+
+## help and refusals
+
+The options are one Opts declaration: busybox's awk help text, less the -E
+spelling and the -e row for options this awk does not take.  `--help` prints
+it on stdout, and 0; a refusal is musl getopt's line, then the usage text, on
+stderr, and 1 -- as busybox's awk.  A bad -v, and no program at all, are the
+usage text alone.
+
+### the help text
+
+```awk
+(display (Opts usage %awk-options))
+```
+---
+```output
+Usage: awk [OPTIONS] [AWK_PROGRAM] [FILE]...
+
+	-v VAR=VAL	Set variable
+	-F SEP		Use SEP as field separator
+	-f FILE		Read program from FILE
+```
+
+### --help is asked for first
+
+```awk
+(write (list (Opts help? %awk-options (list "--help")) (Opts help? %awk-options (list "p" "--help"))))
+```
+---
+    (#t #f)
+
+### the words: a letter, a long option (awk takes none, so it is the option -), a value option given nothing
+
+```awk
+(write (list (%awk-refusal "-Q") (%awk-refusal "--nope") (%awk-refusal "-F")))
+```
+---
+    ("unrecognized option: Q" "unrecognized option: -" "option requires an argument: F")
+
 ## redirection and file getline
 
 ### print > and >> then getline < reads it back

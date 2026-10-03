@@ -35,70 +35,74 @@
       (rest ops)
       ops)))
 
-; One operand: does it look like -Xvalue / -X value?  Answers the value
-; and the rest, from the joined or the split spelling.
-(def %awk-cli-optarg
-  (fn (_ op ops)
-    (if (> (string-length op) 2)
-      (pair (substring op 2 (string-length op)) (rest ops))
-      (if (null? (rest ops))
-        (Err raise (lit awk)
-          (string-append "awk: option needs an argument: " op) ())
-        (pair (first (rest ops)) (rest (rest ops)))))))
+; The options, declared once: what the parse accepts, what --help prints and
+; what a refusal prints.  busybox's awk help text, less the -E spelling and the
+; -e row for options this awk does not take.
+(def %awk-options
+  (Opts declare "awk" "[OPTIONS] [AWK_PROGRAM] [FILE]..." ()
+    (list
+      (Opts arg "-v" "VAR=VAL" "Set variable")
+      (Opts arg "-F" "SEP" "Use SEP as field separator")
+      (Opts arg "-f" "FILE" "Read program from FILE"))))
 
 ; Operands to a plan:
 ;   ((fs . FS|()) (assigns . ((name . value) ...)) (progfiles . (path ...))
 ;    (prog . text|()) (argv . (operand ...)))
-; -f wins over a program operand, POSIX's rule; assigns keep order.
+; or nil when the line does not run: an option awk does not take, or a -v
+; that is not name=value.  Options stop at the first operand, as musl's getopt
+; stops; a -F given twice keeps the last.  -f wins over a program operand,
+; POSIX's rule; assigns keep order.
 (def awk-parse-cli
   (fn (_ operands)
+    (def o (Opts parse-leading %awk-options operands))
+    (def ops (Opts operands o))
+    (def progfiles (Opts values o "-f"))
+    (def assigns
+      (fn (self vs)
+        (if (null? vs) ()
+          (let ((eq-at (%awk-str-index (first vs) "=")))
+            (if (= eq-at 0) (lit bad)
+              (let ((more (self (rest vs))))
+                (if (eq? more (lit bad)) more
+                  (pair (pair (substring (first vs) 0 (- eq-at 1))
+                              (substring (first vs) eq-at (string-length (first vs))))
+                        more))))))))
+    (def as (assigns (Opts values o "-v")))
+    (if (if (null? (Opts unknown o)) (not (eq? as (lit bad))) #f)
+      (list (pair (lit fs) (Opts value o "-F"))
+        (pair (lit assigns) as)
+        (pair (lit progfiles) progfiles)
+        (pair (lit prog) (if (if (null? progfiles) (pair? ops) #f) (first ops) ()))
+        (pair (lit argv) (if (if (null? progfiles) (pair? ops) #f) (rest ops) ops)))
+      ())))
+
+; The line refused, as busybox's awk refuses it: musl getopt's line naming the
+; option, or nothing for a bad -v or no program, then the usage text, on
+; standard error, and 1.  awk takes no long options, so --NAME is the option -.
+(def %awk-refuse
+  (fn (_ tok)
+    (do (file-write 2
+          (string-concat
+            (list (if (null? tok) "" (string-append "awk: " (string-append (%awk-refusal tok) "\n")))
+                  (Opts usage %awk-options))))
+        1)))
+
+(def %awk-refusal
+  (fn (_ tok)
+    (def end (string-length tok))
     (def go
-      (fn (self ops fs assigns progfiles)
-        (match
-          ((null? ops)
-            (list (pair (lit fs) fs)
-              (pair (lit assigns) (reverse assigns))
-              (pair (lit progfiles) (reverse progfiles))
-              (pair (lit prog) ())
-              (pair (lit argv) ())))
-          ((let ((op (first ops)))
-             (if (>= (string-length op) 2)
-               (if (= (string-ref op 0) #\-) (= (string-ref op 1) #\F) #f)
-               #f))
-            (let ((r (%awk-cli-optarg (first ops) ops)))
-              (self (rest r) (first r) assigns progfiles)))
-          ((let ((op (first ops)))
-             (if (>= (string-length op) 2)
-               (if (= (string-ref op 0) #\-) (= (string-ref op 1) #\v) #f)
-               #f))
-            (let ((r (%awk-cli-optarg (first ops) ops)))
-              (def eq-at (%awk-str-index (first r) "="))
-              (if (= eq-at 0)
-                (Err raise (lit awk)
-                  (string-append "awk: -v needs name=value: " (first r)) ())
-                (self (rest r)
-                  fs
-                  (pair (pair (substring (first r) 0 (- eq-at 1))
-                          (substring (first r) eq-at
-                            (string-length (first r))))
-                    assigns)
-                  progfiles))))
-          ((let ((op (first ops)))
-             (if (>= (string-length op) 2)
-               (if (= (string-ref op 0) #\-) (= (string-ref op 1) #\f) #f)
-               #f))
-            (let ((r (%awk-cli-optarg (first ops) ops)))
-              (self (rest r) fs assigns (pair (first r) progfiles))))
-          ; first non-option: the program text (unless -f already gave
-          ; one), then everything else verbatim
-          (#t
-            (let ((have-f (not (null? progfiles))))
-              (list (pair (lit fs) fs)
-                (pair (lit assigns) (reverse assigns))
-                (pair (lit progfiles) (reverse progfiles))
-                (pair (lit prog) (if have-f () (first ops)))
-                (pair (lit argv) (if have-f ops (rest ops)))))))))
-    (go operands () () ())))
+      (fn (self i)
+        (let ((opt (string-append "-" (substring tok i (+ i 1)))))
+          (match
+            ((>= i end) (string-append "unrecognized option: " (substring tok 1 end)))
+            ((%awk-cli-member? opt (Opts valued %awk-options))
+              (string-append "option requires an argument: " (substring tok i (+ i 1))))
+            (#t (string-append "unrecognized option: " (substring tok i (+ i 1))))))))
+    (if (if (> end 2) (= (string-ref tok 1) #\-) #f) "unrecognized option: -" (go 1))))
+
+(def %awk-cli-member?
+  (fn (self s l)
+    (if (null? l) #f (if (string=? (first l) s) #t (self s (rest l))))))
 
 (def %awk-cli-get
   (fn (_ key plan)
@@ -111,10 +115,12 @@
     (go plan)))
 
 ; Run the command line and DO NOT RETURN: the exit status is exit's
-; value when the program called it, else 0.
+; value when the program called it, else 0.  --help first prints the help
+; text, and 0; a line that does not run is refused, and 1.
 (def awk-main
   (fn (_ raw-args)
-    (def plan (awk-parse-cli (awk-argv raw-args)))
+    (def argv (awk-argv raw-args))
+    (def plan (if (Opts help? %awk-options argv) () (awk-parse-cli argv)))
     (def progfiles (%awk-cli-get (lit progfiles) plan))
     (def prog
       (if (null? progfiles)
@@ -126,12 +132,14 @@
                 (string-append (file-read-all (first fs))
                   (string-append "\n" (self (rest fs)))))))
           (join progfiles))))
-    (if (null? prog)
-      (Err raise (lit awk)
-        "usage: x -l awk -- [-F ere] [-v a=v]... [-f progfile | 'program'] [file | a=v]..."
-        ())
-      (sys-exit
-        (%awk-run-cli prog
-          (%awk-cli-get (lit fs) plan)
-          (%awk-cli-get (lit assigns) plan)
-          (%awk-cli-get (lit argv) plan))))))
+    (match
+      ((Opts help? %awk-options argv)
+        (do (display (Opts usage %awk-options)) (sys-exit 0)))
+      ((null? plan)
+        (sys-exit (%awk-refuse (Opts unknown (Opts parse-leading %awk-options argv)))))
+      ((null? prog) (sys-exit (%awk-refuse ())))
+      (#t (sys-exit
+            (%awk-run-cli prog
+              (%awk-cli-get (lit fs) plan)
+              (%awk-cli-get (lit assigns) plan)
+              (%awk-cli-get (lit argv) plan)))))))

@@ -25,6 +25,7 @@
 ; radon capabilities the dialect row has reserved all along.
 (import x/sys/file)
 (import x/sys/proc)
+(import x/sys/opts)
 
 (provide awk/prims
   char->integer integer->char
@@ -39,7 +40,8 @@
   file-read-all file-read-fd file-exists? file-unlink
   proc-run proc-capture sys-exit sys-dup2 sys-close
   sys-pipe sys-fork sys-exec sys-wait
-  sys-sigpipe-ignore! sys-sigpipe-default!)
+  sys-sigpipe-ignore! sys-sigpipe-default!
+  Opts)
 
 ; The direct prims, not the convert dispatcher, for the two casts the lexer
 ; makes per character: the dispatching version walks type alists and allocates.
