@@ -34,6 +34,6 @@
 ; a state image, and the suite boots from one (tests/gen-harness.sh) -- and
 ; v0.10.0 the floor for the lang itself: the stdin slurp's 64K chunks need its
 ; Str8 make stack fix.
-(requires-release "v0.20.0")
+(requires-release "v0.24.0")
 
 (entry "run.x")
