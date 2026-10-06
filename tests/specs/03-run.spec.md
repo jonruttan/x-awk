@@ -122,6 +122,14 @@ d c
 ---
     1024 0.25
 
+### a fractional exponent
+
+```awk
+(awk-run "BEGIN{print 2^0.5, 4^0.5, 2^-0.5}" "")
+```
+---
+    1.41421 2 0.707107
+
 ### modulo
 
 ```awk

@@ -51,6 +51,19 @@ and getline works from BEGIN.  All expectations from a real awk run.
 2 
 ```
 
+### an RS change applies from the next record
+
+```awk
+(awk-run "NR==1{RS=\";\"} {print NR\":\"$0}" "x y\na;b;c")
+```
+---
+```output
+1:x y
+2:a
+3:b
+4:c
+```
+
 ## getline
 
 ### bare getline swaps the record mid-rules

@@ -127,6 +127,50 @@ got beta
 ---
     clean
 
+### records cross the reader's chunk boundaries
+
+Four-byte reads, so lines, blank lines and paragraphs all span chunks.
+
+```awk
+(do (set! %awk-read-size 4)
+    (awk-run "BEGIN{f=\"/tmp/x-awk-spec-chunks.txt\"; printf \"alpha one\\nbeta two three\\n\\ngamma\\n\\n\\ndelta epsilon\\n\" > f; close(f); while ((getline l < f) > 0) n++; print n, l}" ""))
+```
+---
+    7 delta epsilon
+
+### a file operand streams the same records
+
+```awk
+(display (%awk-run-cli "{n++} END{print n, NF, $0}" () () (list "/tmp/x-awk-spec-chunks.txt")))
+```
+---
+```output
+7 2 delta epsilon
+0
+```
+
+### paragraph mode across the chunks
+
+```awk
+(display (%awk-run-cli "BEGIN{RS=\"\"} NR==1{print NF, length($0)} END{print NR, $0}" () () (list "/tmp/x-awk-spec-chunks.txt")))
+```
+---
+```output
+5 24
+3 delta epsilon
+0
+```
+
+### chunk scratch cleanup
+
+```awk
+(do (set! %awk-read-size 65536)
+    (file-unlink "/tmp/x-awk-spec-chunks.txt")
+    (display "clean"))
+```
+---
+    clean
+
 ### getline from a missing file answers -1
 
 ```awk

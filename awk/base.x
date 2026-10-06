@@ -32,3 +32,10 @@
 (include-once "./eval.x")
 (include-once "./fmt.x")
 (include-once "./cli.x")
+
+; The numeric tower: helium's core arithmetic is integers, and awk's value
+; model is rationals.  LAST, after the includes: the tower hooks number
+; analysers into the reader, so anything read after it pays them -- here
+; only the user's program text does.  Imported ahead of lex.x it doubles
+; a source boot; from the state image it costs nothing measurable.
+(import x/num/tower)
