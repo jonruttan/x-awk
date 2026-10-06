@@ -32,18 +32,18 @@
 (def %awk-f0 "")        ; the current record's text
 (def %awk-fields ())    ; current fields, as values (strnum or string)
 (def %awk-fs-cache ())  ; (fs-text . splitter) -- see %awk-split-record
-(def %awk-recs (lit unread))  ; current file's remaining records, or a
-                              ; sentinel: unread (nothing opened yet),
-                              ; done (every source exhausted)
+(def %awk-recs (lit unread))  ; current source's record reader, () between
+                              ; sources, or a sentinel: unread (nothing
+                              ; opened yet), done (every source exhausted)
 (def %awk-funcs ())       ; ((name params . body) ...)
 (def %awk-operands ())    ; remaining file / var=value operands
 (def %awk-any-file? #f)   ; has any input source been opened yet?
-(def %awk-stdin-text "")  ; stdin's content: preset by awk-run, read
-                          ; from fd 3 once by the CLI (see below)
+(def %awk-stdin-text "")  ; stdin's content when awk-run presets it
 (def %awk-stdin-label (lit text))  ; text (preset) | fd (reclaim and read)
+(def %awk-stdin-rd ())    ; stdin's record reader, made on first need
 (def %awk-outs ())        ; print redirection: ((path . fd) ...)
-(def %awk-ins ())         ; getline < file: ((path . recs-box) ...)
-(def %awk-cmd-ins ())     ; "cmd" | getline: ((cmd . recs-box) ...)
+(def %awk-ins ())         ; getline < file: ((path . reader) ...)
+(def %awk-cmd-ins ())     ; "cmd" | getline: ((cmd . reader) ...)
 (def %awk-cmd-outs ())    ; print | "cmd": ((cmd fd . pid) ...)
 (def %awk-sigpipe? #f)    ; SIGPIPE ignored for open output pipes?
 (def %awk-exit-code 0)    ; what exit carried; awk-main's status
@@ -791,8 +791,8 @@
     (%awk-lval-set! lv new)
     (if pre? new old)))
 
-; getline's read table: one record stream per path, split with the RS
-; current at first read.  Answers a record, eof, or noent (unopenable).
+; getline's read table: one record reader per path, opened at first
+; read.  Answers a record, eof, or noent (unopenable).
 (def %awk-getline-file!
   (fn (_ path)
     (def find
@@ -801,19 +801,15 @@
           (if (string=? (first (first es)) path)
             (rest (first es))
             (self (rest es))))))
-    (def box (find %awk-ins))
-    (def box2
-      (if (not (null? box)) box
+    (def rd (find %awk-ins))
+    (def rd2
+      (if (not (null? rd)) rd
         (if (file-exists? path)
-          (let ((b (list (%awk-records (file-read-all path)))))
-            (set! %awk-ins (pair (pair path b) %awk-ins))
-            b)
+          (let ((r (%awk-reader-new (file-open-read path) #t "")))
+            (set! %awk-ins (pair (pair path r) %awk-ins))
+            r)
           ())))
-    (if (null? box2) (lit noent)
-      (if (null? (first box2)) (lit eof)
-        (let ((rec (first (first box2))))
-          (set-first! box2 (rest (first box2)))
-          rec)))))
+    (if (null? rd2) (lit noent) (%awk-rd-next! rd2))))
 
 ; close(name): drop the read stream and/or close the write fd for the
 ; path.  0 when something closed, -1 when nothing was open -- what awk
@@ -830,8 +826,10 @@
       (fn (_)
         (def go
           (fn (self es)
-            (if (null? es) #f
-              (if (string=? (first (first es)) path) #t (self (rest es))))))
+            (if (null? es) ()
+              (if (string=? (first (first es)) path)
+                (rest (first es))
+                (self (rest es))))))
         (go %awk-ins)))
     (def had-out
       (fn (_)
@@ -858,11 +856,14 @@
                 (rest (first es))
                 (self (rest es))))))
         (go %awk-cmd-outs)))
-    (def in? (had-in))
+    (def in-rd (had-in))
+    (def in? (not (null? in-rd)))
     (def out-fd (had-out))
     (def cin? (had-cmd-in))
     (def cout (had-cmd-out))
-    (if in? (set! %awk-ins (del %awk-ins)) ())
+    (if in?
+      (do (%awk-rd-close! in-rd) (set! %awk-ins (del %awk-ins)))
+      ())
     (if (null? out-fd) ()
       (do (file-close out-fd) (set! %awk-outs (del %awk-outs))))
     (if cin? (set! %awk-cmd-ins (del %awk-cmd-ins)) ())
@@ -1024,9 +1025,10 @@
     (if (eq? label (lit pow))
       (let ((a (%awk-to-num (%awk-eval (first (rest node))))))
         (let ((e (%awk-to-num (%awk-eval (first (rest (rest node)))))))
+          ; a fractional exponent leaves the rationals: libm's pow, read
+          ; back through the same printed-digits door as the math set
           (if (not (= 0 (% e 1)))
-            (Err raise (lit awk)
-              "awk: fractional exponents are not built yet (exact core)" e)
+            (%awk-float->rat (float-pow (float-from a) (float-from e)))
             (let ((go (fn (self k acc)
                         (if (= k 0) acc (self (- k 1) (* acc a))))))
               (if (< e 0) (/ 1 (go (- 0 e) 1)) (go e 1))))))
@@ -1134,6 +1136,10 @@
       %awk-cmd-outs)
     (set! %awk-cmd-outs ())
     (set! %awk-cmd-ins ())
+    ; Input left open by an early exit, or a getline < file never closed.
+    (map (fn (_ e) (%awk-rd-close! (rest e))) %awk-ins)
+    (set! %awk-ins ())
+    (if (pair? %awk-recs) (%awk-rd-close! %awk-recs) ())
     ; Restore SIGPIPE only if this run ignored it: an embedding host's
     ; own disposition is not ours to clobber on every teardown.
     (if %awk-sigpipe?
@@ -1155,13 +1161,10 @@
     (def box2
       (if (not (null? box)) box
         (let ((r (proc-capture (list "/bin/sh" "-c" cmd))))
-          (def b (list (%awk-records (rest r))))
+          (def b (%awk-reader-new () #f (rest r)))
           (set! %awk-cmd-ins (pair (pair cmd b) %awk-cmd-ins))
           b)))
-    (if (null? (first box2)) (lit eof)
-      (let ((rec (first (first box2))))
-        (set-first! box2 (rest (first box2)))
-        rec))))
+    (%awk-rd-next! box2)))
 
 ; print | "cmd": one shell child per command string, our write end held
 ; open across prints; close() (or the run's end) sends EOF and waits.
@@ -1334,71 +1337,136 @@
 
 ; --- The record loop ---------------------------------------------------------
 
-; Paragraph mode: records are runs of non-blank lines; blank lines
-; between, before, and after are separators, never records.
-(def %awk-para-records
-  (fn (_ input)
-    (def lines (%awk-split-char input 10))
-    (def join
-      (fn (self ls)
-        (if (null? (rest ls)) (first ls)
-          (string-append (first ls) (string-append "\n" (self (rest ls)))))))
-    (def go
-      (fn (self ls run acc)
-        (if (null? ls)
-          (reverse (if (null? run) acc (pair (join (reverse run)) acc)))
-          (if (= (string-length (first ls)) 0)
-            (self (rest ls) ()
-              (if (null? run) acc (pair (join (reverse run)) acc)))
-            (self (rest ls) (pair (first ls) run) acc)))))
-    (go lines () ())))
+; A record reader: input pulled from an fd as records are asked for, never
+; read whole at open -- an awk at a terminal answers each line as it is
+; typed, and one at the head of a pipe works while the writer still runs.
+; Four cells: the fd (() once exhausted, and from the start for preset
+; text), whether exhaustion closes it (files and getline sources yes,
+; stdin no), the bytes read and not yet consumed, and the offset of the
+; next record in them.
+(def %awk-reader-new
+  (fn (_ fd close? text) (list fd close? text 0)))
 
-; Records per RS: "" is paragraph mode; otherwise the FIRST character of
-; RS separates (POSIX leaves multi-character RS unspecified; first-char
-; is the one-true-awk reading).  A trailing separator closes the last
-; record rather than opening an empty one.
-(def %awk-records
-  (fn (_ input)
-    (def rs (%awk-to-str (%awk-var-get "RS")))
-    (if (string=? rs "")
-      (%awk-para-records input)
-      (let ((b (byte-at rs 0)))
-        (def all (%awk-split-char input b))
-        (def drop-last
-          (fn (self l)
-            (if (null? (rest l)) () (pair (first l) (self (rest l))))))
-        (if (null? all) ()
-          (if (= (byte-len input) 0) ()
-            (if (= (byte-at input (- (byte-len input) 1)) b)
-              (drop-last all)
-              all)))))))
+(def %awk-rd-close!
+  (fn (_ r)
+    (if (if (null? (first r)) #f (first (rest r)))
+      (file-close (first r))
+      ())
+    (set-first! r ())))
 
-; Stdin's text, read once.  Under the CLI the boot pipe occupies fd 0
+; Another chunk onto the unconsumed bytes: #t when one came, #f at end of
+; input.  read(2) answers what is there -- a line at a time from a
+; terminal -- so a record goes on as soon as its separator arrives.
+; The size bounds one read, not a record; the suite shrinks it to cross
+; chunk boundaries on small input.
+(def %awk-read-size 65536)
+(def %awk-rd-fill!
+  (fn (_ r)
+    (if (null? (first r)) #f
+      (let ((chunk (file-read-fd (first r) %awk-read-size)))
+        (if (= (byte-len chunk) 0)
+          (do (%awk-rd-close! r) #f)
+          (let ((cells (rest (rest r))))
+            (let ((buf (first cells)))
+              (set-first! cells
+                (string-append
+                  (substring buf (first (rest cells)) (byte-len buf)) chunk))
+              (set-first! (rest cells) 0)
+              #t)))))))
+
+; The first byte b in s at or after i, or -1.
+(def %awk-byte-find
+  (fn (self s end b i)
+    (if (>= i end) (- 0 1)
+      (if (= (byte-at s i) b) i (self s end b (+ i 1))))))
+
+; One record ending at separator byte b.  from counts past the record's
+; start: those bytes are already known to hold no separator.  A trailing
+; separator closes the last record rather than opening an empty one.
+(def %awk-rd-sep
+  (fn (self r b from)
+    (let ((cells (rest (rest r))))
+      (let ((buf (first cells)))
+        (let ((pos (first (rest cells))))
+          (let ((end (byte-len buf)))
+            (let ((i (%awk-byte-find buf end b (+ pos from))))
+              (if (>= i 0)
+                (do (set-first! (rest cells) (+ i 1)) (substring buf pos i))
+                (if (%awk-rd-fill! r)
+                  (self r b (- end pos))
+                  (if (< pos end)
+                    (do (set-first! (rest cells) end) (substring buf pos end))
+                    (lit eof)))))))))))
+
+; Paragraph mode (RS ""): records are runs of non-blank lines.  The
+; newlines before a record are skipped, a blank line ends it, and the
+; ones after it are left for the next call -- so a record goes on at its
+; blank line, not at the next record's first byte.
+(def %awk-rd-skip-nl
+  (fn (self r)
+    (let ((cells (rest (rest r))))
+      (let ((buf (first cells)))
+        (let ((pos (first (rest cells))))
+          (if (< pos (byte-len buf))
+            (if (= (byte-at buf pos) 10)
+              (do (set-first! (rest cells) (+ pos 1)) (self r))
+              #t)
+            (if (%awk-rd-fill! r) (self r) #f)))))))
+
+; The first "\n\n" in s at or after i, or -1 -- a newline in the last
+; byte is undecided until more input comes.
+(def %awk-nn-find
+  (fn (self s end i)
+    (let ((j (%awk-byte-find s end 10 i)))
+      (if (< j 0) j
+        (if (>= (+ j 1) end) (- 0 1)
+          (if (= (byte-at s (+ j 1)) 10) j (self s end (+ j 1))))))))
+
+(def %awk-trim-nl-end
+  (fn (self s i)
+    (if (if (> i 0) (= (byte-at s (- i 1)) 10) #f) (self s (- i 1)) i)))
+
+(def %awk-rd-para
+  (fn (self r from)
+    (let ((cells (rest (rest r))))
+      (let ((buf (first cells)))
+        (let ((pos (first (rest cells))))
+          (let ((end (byte-len buf)))
+            (let ((i (%awk-nn-find buf end (+ pos from))))
+              (if (>= i 0)
+                (do (set-first! (rest cells) (+ i 2)) (substring buf pos i))
+                (if (%awk-rd-fill! r)
+                  (self r (if (> end (+ pos 1)) (- (- end pos) 1) 0))
+                  (do (set-first! (rest cells) end)
+                      (substring buf pos (%awk-trim-nl-end buf end))))))))))))
+
+; The next record off r, or the symbol eof -- NOT nil, because "" is a
+; legitimate record (RS=";" over "a;;b" has one in the middle).  RS is
+; read per record: "" is paragraph mode; otherwise its FIRST character
+; separates (POSIX leaves multi-character RS unspecified; first-char is
+; the one-true-awk reading), and a change applies from the next record.
+(def %awk-rd-next!
+  (fn (_ r)
+    (let ((rs (%awk-to-str (first %awk-rs-box))))
+      (if (= (byte-len rs) 0)
+        (if (%awk-rd-skip-nl r) (%awk-rd-para r 0) (lit eof))
+        (%awk-rd-sep r (byte-at rs 0) 0)))))
+
+; Stdin's reader, made once.  Under the CLI the boot pipe occupies fd 0
 ; and the caller's stdin waits on fd 3 (the platform's arrangement --
-; see lib/x/repl/loop.x); reclaiming is one dup2.  A second call in
-; under either label answers the cached text's leavings: text is preset.
-(def %awk-stdin-content!
+; see lib/x/repl/loop.x); reclaiming is one dup2.  awk-run presets the
+; text instead.  A second "-" operand continues the same stream.
+(def %awk-stdin-reader!
   (fn (_)
-    (if (eq? %awk-stdin-label (lit fd))
-      (do (sys-dup2 3 0)
-          (sys-close 3)
-          (let ((slurp ()))
-            (set! slurp
-              ; 64K chunks, and the size is a taste, not a ceiling: the
-              ; buffer comes from the engine's raw make door (file-read-fd
-              ; in prims.x), and v0.10.0 -- the lang.xon floor -- carries
-              ; the depth-safe Str8 make whose 16K cliff once pinned this
-              ; at 4096.  History in that release's changelog: the cliff,
-              ; and the NUL-fill corruption the first bump surfaced.
-              (fn (self acc)
-                (let ((chunk (file-read-fd 0 65536)))
-                  (if (if (string? chunk) (> (string-length chunk) 0) #f)
-                    (self (pair chunk acc))
-                    (string-concat (reverse acc))))))
-            (set! %awk-stdin-text (slurp ()))
-            (set! %awk-stdin-label (lit text))
-            %awk-stdin-text))
-      %awk-stdin-text)))
+    (if (null? %awk-stdin-rd)
+      (set! %awk-stdin-rd
+        (if (eq? %awk-stdin-label (lit fd))
+          (do (sys-dup2 3 0)
+              (sys-close 3)
+              (%awk-reader-new 0 #f ""))
+          (%awk-reader-new () #f %awk-stdin-text)))
+      ())
+    %awk-stdin-rd))
 
 ; A var=value operand: NAME then =, POSIX's assignment pattern.
 (def %awk-assign-operand?
@@ -1428,7 +1496,7 @@
         (do (set! %awk-any-file? #t)
             (%awk-var-set! "FILENAME" "")
             (%awk-var-set! "FNR" 0)
-            (set! %awk-recs (%awk-records (%awk-stdin-content!)))))
+            (set! %awk-recs (%awk-stdin-reader!))))
       (let ((op (first %awk-operands)))
         (set! %awk-operands (rest %awk-operands))
         (if (%awk-assign-operand? op)
@@ -1436,37 +1504,35 @@
             (%awk-var-set! (substring op 0 (- eq-at 1))
               (%awk-input-val (substring op eq-at (string-length op))))
             (self))
-          (let ((content
+          (let ((rd
                   (if (string=? op "-")
-                    (%awk-stdin-content!)
+                    (%awk-stdin-reader!)
                     (if (file-exists? op)
-                      (file-read-all op)
+                      (%awk-reader-new (file-open-read op) #t "")
                       (Err raise (lit awk)
                         (string-append "awk: can't open file " op) ())))))
             (set! %awk-any-file? #t)
             (%awk-var-set! "FILENAME" op)
             (%awk-var-set! "FNR" 0)
-            (set! %awk-recs (%awk-records content))))))))
+            (set! %awk-recs rd)))))))
 
-; One record off the stream: the symbol eof at exhaustion -- NOT nil,
-; because "" is a legitimate record (RS=";" over "a;;b" has one in the
-; middle).  Materializes lazily (RS set in BEGIN applies; getline works
+; One record off the current source, or the symbol eof when every source
+; is exhausted.  Opens lazily (RS set in BEGIN applies; getline works
 ; from BEGIN) and walks the operand queue file by file.  NR and FNR
 ; count here; shared by the main loop and getline.
 (def %awk-next-record!
   (fn (self)
     (if (pair? %awk-recs)
-      (let ((rec (first %awk-recs)))
-        (set! %awk-recs (rest %awk-recs))
-        (set-first! %awk-nr-box (+ 1 (%awk-to-num (first %awk-nr-box))))
-        (set-first! %awk-fnr-box (+ 1 (%awk-to-num (first %awk-fnr-box))))
-        rec)
+      (let ((rec (%awk-rd-next! %awk-recs)))
+        (if (eq? rec (lit eof))
+          (do (set! %awk-recs ()) (self))
+          (do (set-first! %awk-nr-box (+ 1 (%awk-to-num (first %awk-nr-box))))
+              (set-first! %awk-fnr-box (+ 1 (%awk-to-num (first %awk-fnr-box))))
+              rec)))
       (if (eq? %awk-recs (lit done))
         (lit eof)
-        (if (null? %awk-recs)
-          (do (%awk-advance-file!) (self))
-          ; the unread sentinel
-          (do (%awk-advance-file!) (self)))))))
+        ; between sources, or the unread sentinel
+        (do (%awk-advance-file!) (self))))))
 
 (def %awk-rule-fires?
   (fn (_ pat)
@@ -1521,6 +1587,7 @@
     (set! %awk-any-file? #f)
     (set! %awk-stdin-text "")
     (set! %awk-stdin-label (lit text))
+    (set! %awk-stdin-rd ())
     (set! %awk-outs ())
     (set! %awk-ins ())
     (set! %awk-cmd-ins ())

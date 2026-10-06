@@ -35,8 +35,8 @@
   byte-at byte-len
   regex-compile regex-search regex-split regex-replace-all regex-find-at
   float-from float->string float-sin float-cos float-exp float-log
-  float-sqrt float-atan2 make-rng rng-int
-  file-open-write file-open-append file-close file-write
+  float-sqrt float-atan2 float-pow make-rng rng-int
+  file-open-read file-open-write file-open-append file-close file-write
   file-read-all file-read-fd file-exists? file-unlink
   proc-run proc-capture sys-exit sys-dup2 sys-close
   sys-pipe sys-fork sys-exec sys-wait
@@ -119,6 +119,7 @@
 (def float-log (fn (_ f) (Float log f)))
 (def float-sqrt (fn (_ f) (Float sqrt f)))
 (def float-atan2 (fn (_ y x) (Float atan2 y x)))
+(def float-pow (fn (_ b e) (Float pow b e)))
 
 ; --- The PRNG ----------------------------------------------------------------
 ; (Random sw seed) is deterministic xorshift; (rng int n) answers [0, n).
@@ -126,6 +127,7 @@
 (def rng-int (fn (_ r n) (r int n)))
 
 ; --- Files, processes, the exit ----------------------------------------------
+(def file-open-read (fn (_ path) (File open path (lit rdonly))))
 (def file-open-write
   (fn (_ path) (File open path (list (lit wronly) (lit creat) (lit trunc)))))
 (def file-open-append

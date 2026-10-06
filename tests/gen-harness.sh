@@ -48,14 +48,6 @@ if [ -z "${X_BASE:-}" ]; then
 	exit 1
 fi
 
-# A known gap, recorded here because this is where it would hide: the tower
-# x-base.x boots is one `x -l awk` never loads. The bundle declares dialect he
-# and awk/prims.x imports float alone, so every fraction in the shipped lang
-# truncates, while this suite (on x-base.x's tower) stays green. It is priced
-# in docs/numeric-gap.md -- what breaks, what each fix costs, and why the
-# answer waits on a release whose `x -l awk` boots from an image. Still the
-# bundle's bug, and not the harness's to paper over.
-
 # %install-root first (deferred imports resolve against it), the amalgam (never
 # a dialect entry -- those end by starting a REPL), then the bundle root armed
 # exactly as run.x arms it. Nothing under awk/ includes a platform module
