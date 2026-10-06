@@ -329,45 +329,8 @@
 ;   FS = " "     runs of blanks separate, leading/trailing ignored
 ;   FS = one c   that character, literally
 ;   FS = other   an ERE, compiled once and cached
-; HOT (once over the whole input at file open): the separator is a BYTE
-; and the scan is byte-at; the per-piece substring is the only dispatch.
-(def %awk-sc-go
-  (fn (self s end b i start acc)
-    (if (>= i end)
-      (reverse (pair (substring s start end) acc))
-      (if (= (byte-at s i) b)
-        (self s end b (+ i 1) (+ i 1) (pair (substring s start i) acc))
-        (self s end b (+ i 1) start acc)))))
-(def %awk-split-char
-  (fn (_ s b) (%awk-sc-go s (byte-len s) b 0 0 ())))
-
-(def %awk-blank?
-  (fn (_ c)
-    (let ((ci (char->integer c)))
-      (if (= ci 32) #t (if (= ci 9) #t (= ci 10))))))
-
-; HOT: no inner def -- a def in a called body binds GLOBALLY (the
-; crafting doc's warning), so per-record defs grow the global env
-; without bound and every later lookup pays for it.  Helpers are
-; module-level with the string threaded.
-(def %awk-byte-blank?
-  (fn (_ b) (if (= b 32) #t (if (= b 9) #t (= b 10)))))
-(def %awk-sb-skip
-  (fn (self s end i)
-    (if (>= i end) i
-      (if (%awk-byte-blank? (byte-at s i)) (self s end (+ i 1)) i))))
-(def %awk-sb-word
-  (fn (self s end i)
-    (if (>= i end) i
-      (if (%awk-byte-blank? (byte-at s i)) i (self s end (+ i 1))))))
-(def %awk-sb-go
-  (fn (self s end i acc)
-    (let ((st (%awk-sb-skip s end i)))
-      (if (>= st end) (reverse acc)
-        (let ((en (%awk-sb-word s end st)))
-          (self s end en (pair (substring s st en) acc)))))))
-(def %awk-split-blanks
-  (fn (_ s) (%awk-sb-go s (byte-len s) 0 ())))
+; The first two are awk/split.x's lexers (%awk-split-blanks, %awk-split-char),
+; native code a byte; the third is the regex engine's.
 
 ; Split text by a separator STRING, POSIX's three regimes.  An empty text
 ; has no fields at all -- an empty record answers NF=0 whatever FS says,
@@ -1344,8 +1307,10 @@
 ; text), whether exhaustion closes it (files and getline sources yes,
 ; stdin no), the bytes read and not yet consumed, and the offset of the
 ; next record in them.
+; A fifth cell holds the records already cut and not yet handed out, with
+; the byte they were cut at: (BYTE RECORD ...), or nil.
 (def %awk-reader-new
-  (fn (_ fd close? text) (list fd close? text 0)))
+  (fn (_ fd close? text) (list fd close? text 0 ())))
 
 (def %awk-rd-close!
   (fn (_ r)
@@ -1380,23 +1345,52 @@
     (if (>= i end) (- 0 1)
       (if (= (byte-at s i) b) i (self s end b (+ i 1))))))
 
-; One record ending at separator byte b.  from counts past the record's
-; start: those bytes are already known to hold no separator.  A trailing
-; separator closes the last record rather than opening an empty one.
+; One record ending at separator byte b: the next off the queue the last
+; cut left, when it was cut at b.  A queue cut at another byte -- RS changed,
+; and it applies from the next record -- goes back into the bytes as text,
+; each record closed by the old byte, and is cut again at the new one.  An
+; empty queue is filled by a cut (awk/split.x) of every record the bytes
+; hold.  A trailing separator closes the last record rather than opening an
+; empty one.
 (def %awk-rd-sep
-  (fn (self r b from)
-    (let ((cells (rest (rest r))))
-      (let ((buf (first cells)))
-        (let ((pos (first (rest cells))))
-          (let ((end (byte-len buf)))
-            (let ((i (%awk-byte-find buf end b (+ pos from))))
-              (if (>= i 0)
-                (do (set-first! (rest cells) (+ i 1)) (substring buf pos i))
-                (if (%awk-rd-fill! r)
-                  (self r b (- end pos))
-                  (if (< pos end)
-                    (do (set-first! (rest cells) end) (substring buf pos end))
-                    (lit eof)))))))))))
+  (fn (self r b)
+    (let ((qc (rest (rest (rest (rest r))))))
+      (let ((q (first qc)))
+        (if (if (pair? q) (pair? (rest q)) #f)
+          (if (= (first q) b)
+            (do (set-first! qc (pair b (rest (rest q))))
+                (first (rest q)))
+            (let ((cells (rest (rest r))))
+              (do (set-first! cells
+                    (%awk-requeue-text (rest q)
+                      (list->string (list (integer->char (first q))))
+                      (substring (first cells) (first (rest cells))
+                        (byte-len (first cells)))))
+                  (set-first! (rest cells) 0)
+                  (set-first! qc ())
+                  (self r b))))
+          (%awk-rd-cut! r b))))))
+
+; The queue empty: the bytes read and not yet consumed are cut at b, the
+; records queued and an open last piece kept as the bytes for the next fill
+; to extend.  Bytes that are one open piece wait for more input, and at the
+; end of input that piece is the last record; no bytes and no more input is
+; eof.
+(def %awk-rd-cut!
+  (fn (_ r b)
+    (let ((cells (rest (rest r))) (qc (rest (rest (rest (rest r))))))
+      (let ((text (substring (first cells) (first (rest cells))
+                    (byte-len (first cells)))))
+        (if (= (byte-len text) 0)
+          (if (%awk-rd-fill! r) (%awk-rd-sep r b) (lit eof))
+          (let ((cut (%awk-cut-records text b)))
+            (set-first! cells (rest cut))
+            (set-first! (rest cells) 0)
+            (if (null? (first cut))
+              (if (%awk-rd-fill! r) (%awk-rd-sep r b)
+                (do (set-first! cells "") (rest cut)))
+              (do (set-first! qc (pair b (first cut)))
+                  (%awk-rd-sep r b)))))))))
 
 ; Paragraph mode (RS ""): records are runs of non-blank lines.  The
 ; newlines before a record are skipped, a blank line ends it, and the
@@ -1450,7 +1444,7 @@
     (let ((rs (%awk-to-str (first %awk-rs-box))))
       (if (= (byte-len rs) 0)
         (if (%awk-rd-skip-nl r) (%awk-rd-para r 0) (lit eof))
-        (%awk-rd-sep r (byte-at rs 0) 0)))))
+        (%awk-rd-sep r (byte-at rs 0))))))
 
 ; Stdin's reader, made once.  Under the CLI the boot pipe occupies fd 0
 ; and the caller's stdin waits on fd 3 (the platform's arrangement --

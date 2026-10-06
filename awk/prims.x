@@ -172,3 +172,13 @@
 ; the default before exec so the command sees normal pipe semantics.
 (def sys-sigpipe-ignore! (fn (_) (Sys signal 13 (Sys sig-ign))))
 (def sys-sigpipe-default! (fn (_) (Sys signal 13 (Sys sig-dfl))))
+
+; Records and fields are cut by the platform's lexer (x/reader/lexer):
+; tokenizer bases made from data rules, their analysers native code.
+; awk/split.x makes one a separator and keeps it.
+(import x/reader/lexer)
+(def lexer-make (fn (_ rules end) (Lexer make rules end)))
+(def lexer-run (fn (_ tag opens continues) (Lexer run tag opens continues)))
+(def lexer-skip (fn (_ class) (Lexer skip class)))
+(def lexer-table (fn (_ tag strings) (Lexer table tag strings)))
+(def lexer-read (fn (_ l s) (l read-str s)))

@@ -81,6 +81,7 @@ expectations.
     awk/prims.x       the platform layer, one file
     awk/lex.x         program text -> tokens (a string scanner; see base.x)
     awk/parse.x       tokens -> AST, grammar only
+    awk/split.x       records and fields, cut by the platform's lexer
     awk/eval.x        the AST's meaning: values, records, the run loop
     awk/fmt.x         the printf engine; OFMT/CONVFMT route through it
     awk/cli.x         argv to a plan (pure), and awk-main (the exit)
