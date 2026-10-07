@@ -29,6 +29,7 @@
 
 (include-once "./lex.x")
 (include-once "./parse.x")
+(include-once "./split.x")
 (include-once "./eval.x")
 (include-once "./fmt.x")
 (include-once "./cli.x")
