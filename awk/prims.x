@@ -41,6 +41,7 @@
   proc-run proc-capture sys-exit sys-dup2 sys-close
   sys-pipe sys-fork sys-exec sys-wait
   sys-sigpipe-ignore! sys-sigpipe-default!
+  heap-collect heap-count
   Opts)
 
 ; The direct prims, not the convert dispatcher, for the two casts the lexer
@@ -182,3 +183,11 @@
 (def lexer-skip (fn (_ class) (Lexer skip class)))
 (def lexer-table (fn (_ tag strings) (Lexer table tag strings)))
 (def lexer-read (fn (_ l s) (l read-str s)))
+
+; --- The heap ----------------------------------------------------------------
+; x collects only where a program asks to: nothing sweeps on its own, so a
+; loop over input keeps every object it ever made unless it sweeps.  The
+; record loop does (awk/eval.x, %awk-sweep!).  count walks the heap and
+; answers the objects on it; the memory spec reads it.
+(def heap-collect (prim-ref (lit heap) (lit collect)))
+(def heap-count (prim-ref (lit heap) (lit count)))

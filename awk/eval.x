@@ -1528,6 +1528,24 @@
         ; between sources, or the unread sentinel
         (do (%awk-advance-file!) (self))))))
 
+; The record loop's sweep.  x never collects on its own, so every object a
+; record makes -- its fields, the frames of the rules run over it -- stays
+; until something sweeps: on a plain line of text, ~70K objects a record.
+; A sweep every %awk-sweep-every records holds the heap to that many
+; records' garbage over what is live.  The count is of records, not of
+; objects: (heap count) walks the whole heap, as dear as the sweep it
+; would decide.  An input shorter than the interval never sweeps.  Called
+; between records, where everything live is in a global or the loop's
+; own frame.
+(def %awk-sweep-every 16)
+(def %awk-sweep-left 16)
+(def %awk-sweep!
+  (fn (_)
+    (if (> %awk-sweep-left 1)
+      (set! %awk-sweep-left (- %awk-sweep-left 1))
+      (do (heap-collect)
+          (set! %awk-sweep-left %awk-sweep-every)))))
+
 (def %awk-rule-fires?
   (fn (_ pat)
     (if (null? pat) #t
@@ -1630,6 +1648,7 @@
     ; Only bother with the record loop when something consumes records.
     (unless (if exited? #t (if (null? rules) (null? ends) #f))
       (let ((loop ()))
+        (set! %awk-sweep-left %awk-sweep-every)
         (set! loop
           (fn (self)
             (let ((rec (%awk-next-record!)))
@@ -1639,7 +1658,7 @@
                     (let ((c (%awk-run-rules rules)))
                       (if (if (null? c) #f (eq? (first c) (lit exit)))
                         ()
-                        (self))))))))
+                        (do (%awk-sweep!) (self)))))))))
         (loop)))
     (%awk-exec-list ends)
     %awk-exit-code))
