@@ -216,3 +216,39 @@ end
 ```
 ---
     y
+
+## range patterns
+
+### a range runs from a match of the first pattern through the second
+
+```awk
+(awk-run "/b/, /d/ {print}" "a\nb\nc\nd\ne\n")
+```
+---
+```output
+b
+c
+d
+```
+
+### both ends on one record fire once, and the range opens again
+
+```awk
+(awk-run "/x/, /x/ {print NR}" "x\ny\nx\n")
+```
+---
+```output
+1
+3
+```
+
+### a range with no closing match runs to the end of input
+
+```awk
+(awk-run "NR == 2, /none/" "a\nb\nc\n")
+```
+---
+```output
+b
+c
+```

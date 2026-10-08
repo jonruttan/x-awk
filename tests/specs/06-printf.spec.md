@@ -159,3 +159,37 @@ expectations from a real awk run, except where a case says otherwise.
 ```
 ---
     Error: #<err:awk awk: printf: not enough arguments>
+
+## the parenthesized argument list
+
+### printf with its arguments in parentheses
+
+```awk
+(awk-run "{ printf(\"%-8s $%6.2f\\n\", $1, $2 * $3) }" "Mary 5.50 22\n")
+```
+---
+    Mary     $121.00
+
+### print with its arguments in parentheses, and a comparison inside
+
+```awk
+(awk-run "BEGIN{print (1, 3 > 2)}" "")
+```
+---
+    1 1
+
+### a parenthesized list before a redirection
+
+```awk
+(awk-run "BEGIN{printf(\"%s\\n\", \"x\") > \"/dev/stdout\"}" "")
+```
+---
+    x
+
+### a parenthesized first term followed by more is a concatenation
+
+```awk
+(awk-run "BEGIN{print (1)(2), 3}" "")
+```
+---
+    12 3

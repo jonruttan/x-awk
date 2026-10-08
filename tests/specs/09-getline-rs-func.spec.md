@@ -165,3 +165,27 @@ c 1 d
 ```
 ---
     Error: #<err:awk awk: calling undefined function nosuch>
+
+### getline reads into an array element
+
+```awk
+(awk-run "{ getline a[\"k\"]; print a[\"k\"] }" "x\ny\n")
+```
+---
+    y
+
+### getline reads into a field, and $0 is rebuilt
+
+```awk
+(awk-run "{ getline $2; print }" "a b c\nz\n")
+```
+---
+    a z c
+
+### a command's line into an element
+
+```awk
+(awk-run "BEGIN{ \"echo hi\" | getline a[\"k\"]; print a[\"k\"] }" "")
+```
+---
+    hi

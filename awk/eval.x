@@ -953,10 +953,15 @@
     ; (k in a): membership WITHOUT creating -- the counterpart rule.
     (if (eq? label (lit in))
       (let ((av (%awk-var-get (first (rest (rest node))))))
-        (%awk-bool
-          (if (%awk-array? av)
-            (%awk-arr-has? av (%awk-to-str (%awk-eval (first (rest node)))))
-            #f)))
+        (let ((k (first (rest node))))
+          (%awk-bool
+            (if (%awk-array? av)
+              (%awk-arr-has? av
+                ; (i, j) in a: the subscripts joined as a[i,j] joins them
+                (if (eq? (first k) (lit subs))
+                  (%awk-subs-key (first (rest k)))
+                  (%awk-to-str (%awk-eval k))))
+              #f))))
     (if (eq? label (lit ternary))
       (if (%awk-truthy? (%awk-eval (first (rest node))))
         (%awk-eval (first (rest (rest node))))
@@ -1551,7 +1556,20 @@
     (if (null? pat) #t
       (if (eq? (first pat) (lit ere))
         (not (null? (regex-search %awk-f0 (first (rest pat)))))
-        (%awk-truthy? (%awk-eval pat))))))
+        (if (eq? (first pat) (lit range))
+          (%awk-range-fires? pat)
+          (%awk-truthy? (%awk-eval pat)))))))
+
+; (range P1 P2 (ON)): off, a record matching P1 turns it on; on, every
+; record fires, and one matching P2 -- the same record as P1's included --
+; turns it off after firing.
+(def %awk-range-fires?
+  (fn (_ pat)
+    (let ((cell (first (rest (rest (rest pat))))))
+      (if (if (first cell) #t (%awk-rule-fires? (first (rest pat))))
+        (do (set-first! cell (not (%awk-rule-fires? (first (rest (rest pat))))))
+            #t)
+        #f))))
 
 (def %awk-run-rules
   (fn (self rules)

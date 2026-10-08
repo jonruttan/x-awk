@@ -160,3 +160,11 @@ join with SUBSEP.  Every expectation here came from a real awk run.
 ```
 ---
     2
+
+### a parenthesized subscript list tests membership
+
+```awk
+(awk-run "BEGIN{a[1,2]=1; print ((1,2) in a), ((2,1) in a)}" "")
+```
+---
+    1 0
