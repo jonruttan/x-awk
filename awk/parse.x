@@ -136,6 +136,27 @@
             (%awk-p-err "expected , or ] in subscript" ts2)))))
     (loop toks ())))
 
+; The rest of a parenthesized subscript list after its first comma, through
+; the ): (EXPRS . rest).
+(def %awk-p-subs-list
+  (fn (self ts acc)
+    (let ((r (%awk-p-expr (%awk-p-skip-nl ts) #t)))
+      (if (%awk-p-op? (rest r) ",")
+        (self (rest (rest r)) (pair (first r) acc))
+        (if (%awk-p-op? (rest r) ")")
+          (pair (reverse (pair (first r) acc)) (rest (rest r)))
+          (%awk-p-err "expected ) after a subscript list" (rest r)))))))
+
+; getline's target, when one follows: any l-value -- a variable, an
+; element, a field.  (LV . rest), LV nil for none.
+(def %awk-p-getline-target
+  (fn (_ ts gt)
+    (if (if (eq? (%awk-p-label ts) (lit name)) #t (%awk-p-op? ts "$"))
+      (let ((r (%awk-p-primary ts gt)))
+        (if (%awk-p-lval? (first r)) r
+          (%awk-p-err "getline needs a variable, element or field" ts)))
+      (pair () ts))))
+
 (def %awk-p-primary
   (fn (_ toks gt)
     (if (null? toks) (%awk-p-err "expected an expression" toks)
@@ -174,10 +195,9 @@
           ; getline [var] [< expr]: main input, or a file.  The pipe
           ; form ("cmd" | getline) is still to come.
           ((%awk-p-kw? toks (lit getline))
-            (let ((lv (if (eq? (%awk-p-label (rest toks)) (lit name))
-                        (list (lit var) (first (rest (first (rest toks)))))
-                        ())))
-              (def ts (if (null? lv) (rest toks) (rest (rest toks))))
+            (let ((tg (%awk-p-getline-target (rest toks) gt)))
+              (def lv (first tg))
+              (def ts (rest tg))
               (if (%awk-p-op? ts "<")
                 (let ((t (%awk-p-concat (rest ts) gt)))
                   (pair (list (lit getline) lv (list (lit file) (first t)))
@@ -187,7 +207,14 @@
             (let ((r (%awk-p-expr (%awk-p-skip-nl (rest toks)) #t)))
               (if (%awk-p-op? (rest r) ")")
                 (pair (first r) (rest (rest r)))
-                (%awk-p-err "expected )" (rest r)))))
+                ; (i, j) in a: a parenthesized subscript list, which only
+                ; `in` may follow
+                (if (%awk-p-op? (rest r) ",")
+                  (let ((l (%awk-p-subs-list (rest (rest r)) (list (first r)))))
+                    (if (%awk-p-kw? (rest l) (lit in))
+                      (pair (list (lit subs) (first l)) (rest l))
+                      (%awk-p-err "expected in after a subscript list" (rest l))))
+                  (%awk-p-err "expected )" (rest r))))))
           ((%awk-p-op? toks "$")
             ; $ binds tighter than everything: $i++ increments the FIELD
             ; ref's value, $a b concatenates $a with b.  The index is a
@@ -316,12 +343,9 @@
     (def pipe-loop
       (fn (self acc ts)
         (if (if (%awk-p-op? ts "|") (%awk-p-kw? (rest ts) (lit getline)) #f)
-          (let ((after (rest (rest ts))))
-            (def lv (if (eq? (%awk-p-label after) (lit name))
-                      (list (lit var) (first (rest (first after))))
-                      ()))
-            (self (list (lit getline) lv (list (lit cmd) acc))
-              (if (null? lv) after (rest after))))
+          (let ((tg (%awk-p-getline-target (rest (rest ts)) gt)))
+            (self (list (lit getline) (first tg) (list (lit cmd) acc))
+              (rest tg)))
           (pair acc ts))))
     (def r (pipe-loop (first r0) (rest r0)))
     (def ts (rest r))
@@ -465,7 +489,10 @@
     (def paren
       (if (%awk-p-op? toks "(") (%awk-p-paren-args-go (rest toks) ()) ()))
     (if (not (null? paren)) paren
-    (if (%awk-p-term? toks)
+    ; no arguments: the statement ends, or a redirection starts (print > f)
+    (if (if (%awk-p-term? toks) #t
+          (if (%awk-p-op? toks ">") #t
+            (if (%awk-p-op? toks ">>") #t (%awk-p-op? toks "|"))))
       (pair () toks)
       (let ((loop ()))
         (set! loop
@@ -673,6 +700,16 @@
         (def br (%awk-p-action (%awk-p-skip-nl (rest pr))))
         (pair (list (lit func) nm (first pr) (first br)) (rest br))))))
 
+; A range pattern, pat1, pat2: on from a record matching pat1 through the
+; next matching pat2.  The node carries its own on/off cell, made fresh by
+; each parse.
+(def %awk-p-range
+  (fn (_ p)
+    (if (%awk-p-op? (rest p) ",")
+      (let ((p2 (%awk-p-expr (%awk-p-skip-nl (rest (rest p))) #t)))
+        (pair (list (lit range) (first p) (first p2) (list #f)) (rest p2)))
+      p)))
+
 (def %awk-p-item
   (fn (_ toks)
     (match
@@ -687,7 +724,7 @@
         (let ((r (%awk-p-action toks)))
           (pair (list (lit rule) () (first r)) (rest r))))
       (#t
-        (let ((p (%awk-p-expr toks #t)))
+        (let ((p (%awk-p-range (%awk-p-expr toks #t))))
           (if (%awk-p-op? (rest p) "{")
             (let ((r (%awk-p-action (rest p))))
               (pair (list (lit rule) (first p) (first r)) (rest r)))

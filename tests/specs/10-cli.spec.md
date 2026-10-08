@@ -207,3 +207,11 @@ Four-byte reads, so lines, blank lines and paragraphs all span chunks.
 7
 0
 ```
+
+### print with no arguments before a redirection prints $0
+
+```awk
+(awk-run "{ print > \"/dev/stdout\" }" "a b\n")
+```
+---
+    a b
