@@ -440,10 +440,31 @@
           (%awk-p-err (string-append "expected ) after " what) (rest r))))
       (%awk-p-err (string-append "expected ( after " what) toks))))
 
+; A whole parenthesized argument list, POSIX's `print ( expr-list )`:
+; (args . rest) when the `)` is followed by a statement boundary or a
+; redirection, else () and the caller reads the `(` as a grouping --
+; `print (a)(b)` is a concatenation.  Inside the parentheses `>` compares.
+(def %awk-p-paren-args-go
+  (fn (self ts acc)
+    (let ((r (%awk-p-expr (%awk-p-skip-nl ts) #t)))
+      (if (%awk-p-op? (rest r) ",")
+        (self (rest (rest r)) (pair (first r) acc))
+        (if (%awk-p-op? (rest r) ")")
+          (let ((after (rest (rest r))))
+            (if (if (%awk-p-term? after) #t
+                  (if (%awk-p-op? after ">") #t
+                    (if (%awk-p-op? after ">>") #t (%awk-p-op? after "|"))))
+              (pair (reverse (pair (first r) acc)) after)
+              ()))
+          ())))))
+
 ; print arguments: a comma-separated list, `>` refused (gt=#f), ended by a
-; statement boundary.
+; statement boundary; or the same list in parentheses.
 (def %awk-p-print-args
   (fn (_ toks)
+    (def paren
+      (if (%awk-p-op? toks "(") (%awk-p-paren-args-go (rest toks) ()) ()))
+    (if (not (null? paren)) paren
     (if (%awk-p-term? toks)
       (pair () toks)
       (let ((loop ()))
@@ -453,7 +474,7 @@
             (if (%awk-p-op? (rest r) ",")
               (self (%awk-p-skip-nl (rest (rest r))) (pair (first r) acc))
               (pair (reverse (pair (first r) acc)) (rest r)))))
-        (loop toks ())))))
+        (loop toks ()))))))
 
 ; The body statement after if/while/for/else: newlines may precede it.
 (def %awk-p-body
