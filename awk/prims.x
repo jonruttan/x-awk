@@ -177,11 +177,14 @@
 ; Records and fields are cut by the platform's lexer (x/reader/lexer):
 ; tokenizer bases made from data rules, their analysers native code.
 ; awk/split.x makes one a separator and keeps it.  The Lexer loads its
-; compiled-code cache (x/tool/asm-cache) on the first make; imported here,
-; it is in the state image instead of read from source on every run that
-; reads input.
+; compiled-code cache (x/tool/asm-cache) on the first make, and the cache
+; loads the compiler (x/tool/asm-compile) on a miss -- every separator byte
+; misses on a cold cache, as each run in a fresh container is.  Imported
+; here, both are in the state image instead of read from source by a run
+; that reads input: the compiler read from source costs 28 s and 3.3 GB.
 (import x/reader/lexer)
 (import x/tool/asm-cache)
+(import x/tool/asm-compile)
 (def lexer-make (fn (_ rules end) (Lexer make rules end)))
 (def lexer-run (fn (_ tag opens continues) (Lexer run tag opens continues)))
 (def lexer-skip (fn (_ class) (Lexer skip class)))

@@ -161,6 +161,24 @@ Four-byte reads, so lines, blank lines and paragraphs all span chunks.
 0
 ```
 
+### -F: over a file, x-os's check
+
+```awk
+(do (def cli-group "/tmp/x-awk-spec-group.txt")
+    (def cli-out (file-open-write cli-group))
+    (file-write cli-out "root:x:0:\ndaemon:x:1:\n")
+    (file-close cli-out)
+    (def cli-code (%awk-run-cli "{ print \"awk-\" $1 }" ":" () (list cli-group)))
+    (file-unlink cli-group)
+    (display cli-code))
+```
+---
+```output
+awk-root
+awk-daemon
+0
+```
+
 ### chunk scratch cleanup
 
 ```awk
