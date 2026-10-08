@@ -36,7 +36,7 @@
                               ; sources, or a sentinel: unread (nothing
                               ; opened yet), done (every source exhausted)
 (def %awk-funcs ())       ; ((name params . body) ...)
-(def %awk-operands ())    ; remaining file / var=value operands
+(def %awk-argi 1)         ; the next ARGV index to read as an operand
 (def %awk-any-file? #f)   ; has any input source been opened yet?
 (def %awk-stdin-text "")  ; stdin's content when awk-run presets it
 (def %awk-stdin-label (lit text))  ; text (preset) | fd (reclaim and read)
@@ -1487,17 +1487,33 @@
 ; reached (POSIX's in-order rule), a file operand opens with the
 ; CURRENT RS, "-" is stdin, and when the operands run out having never
 ; opened anything, stdin is the input.  FILENAME and FNR are per-file.
+; The next operand: ARGV[%awk-argi] onward, read as each is reached -- so
+; a program may change ARGV and ARGC before then (POSIX), and an element
+; deleted or set to "" is skipped.  Nil when they run out.
+(def %awk-next-operand!
+  (fn (self)
+    (let ((argv (%awk-var-get "ARGV")))
+      (if (if (%awk-array? argv)
+            (< %awk-argi (%awk-to-num (%awk-var-get "ARGC")))
+            #f)
+        (let ((key (%awk-int->str %awk-argi)))
+          (set! %awk-argi (+ %awk-argi 1))
+          (if (%awk-arr-has? argv key)
+            (let ((op (%awk-to-str (first (%awk-arr-ref! argv key)))))
+              (if (string=? op "") (self) op))
+            (self)))
+        ()))))
+
 (def %awk-advance-file!
   (fn (self)
-    (if (null? %awk-operands)
-      (if %awk-any-file?
-        (set! %awk-recs (lit done))
-        (do (set! %awk-any-file? #t)
-            (%awk-var-set! "FILENAME" "")
-            (%awk-var-set! "FNR" 0)
-            (set! %awk-recs (%awk-stdin-reader!))))
-      (let ((op (first %awk-operands)))
-        (set! %awk-operands (rest %awk-operands))
+    (let ((op (%awk-next-operand!)))
+      (if (null? op)
+        (if %awk-any-file?
+          (set! %awk-recs (lit done))
+          (do (set! %awk-any-file? #t)
+              (%awk-var-set! "FILENAME" "")
+              (%awk-var-set! "FNR" 0)
+              (set! %awk-recs (%awk-stdin-reader!))))
         (if (%awk-assign-operand? op)
           (let ((eq-at (%awk-str-index op "=")))
             (%awk-var-set! (substring op 0 (- eq-at 1))
@@ -1517,7 +1533,7 @@
 
 ; One record off the current source, or the symbol eof when every source
 ; is exhausted.  Opens lazily (RS set in BEGIN applies; getline works
-; from BEGIN) and walks the operand queue file by file.  NR and FNR
+; from BEGIN) and walks the ARGV operands file by file.  NR and FNR
 ; count here; shared by the main loop and getline.
 (def %awk-next-record!
   (fn (self)
@@ -1613,7 +1629,7 @@
     (set! %awk-rng (make-rng 0))
     (set! %awk-recs (lit unread))
     (set! %awk-funcs ())
-    (set! %awk-operands ())
+    (set! %awk-argi 1)
     (set! %awk-any-file? #f)
     (set! %awk-stdin-text "")
     (set! %awk-stdin-label (lit text))
@@ -1634,7 +1650,7 @@
     (set! %awk-ors-box (%awk-var-box "ORS"))))
 
 ; The program itself: functions register, BEGIN runs, the record loop
-; walks the operand queue, END runs.  Answers the exit status.
+; walks the ARGV operands, END runs.  Answers the exit status.
 (def %awk-run-items
   (fn (_ items)
     (def begins ())
@@ -1692,15 +1708,15 @@
     (%awk-close-outs!)
     ()))
 
-; The CLI door: -F/-v applied ahead of BEGIN, ARGV/ARGC built, operands
-; queued, stdin read from the caller's fd on first need.  Answers the
-; exit status for awk-main to hand Sys exit.
+; The CLI door: -F/-v applied ahead of BEGIN, ARGV/ARGC built (the
+; operands are read from them as each is reached), stdin read from the
+; caller's fd on first need.  Answers the exit status for awk-main to hand
+; Sys exit.
 (def %awk-run-cli
   (fn (_ prog fs assigns operands)
     (def items (awk-parse prog))
     (%awk-reset!)
     (set! %awk-stdin-label (lit fd))
-    (set! %awk-operands operands)
     (unless (null? fs) (%awk-var-set! "FS" fs))
     (map (fn (_ a)
            (%awk-var-set! (first a) (%awk-input-val (rest a))))

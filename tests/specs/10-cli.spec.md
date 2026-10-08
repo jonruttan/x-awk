@@ -119,6 +119,29 @@ got beta
 0
 ```
 
+### operands are read from ARGV as each is reached: one set to "" is skipped
+
+```awk
+(display (%awk-run-cli "BEGIN{ARGV[1] = \"\"} {print FILENAME, FNR}" () () (list "/no/such/file" "/tmp/x-awk-spec-scratch.txt")))
+```
+---
+```output
+/tmp/x-awk-spec-scratch.txt 1
+/tmp/x-awk-spec-scratch.txt 2
+0
+```
+
+### an operand added in BEGIN, with ARGC raised, is read
+
+```awk
+(display (%awk-run-cli "BEGIN{ARGV[1] = \"/tmp/x-awk-spec-scratch.txt\"; ARGC = 2} END{print NR}" () () ()))
+```
+---
+```output
+2
+0
+```
+
 ### scratch cleanup
 
 ```awk
