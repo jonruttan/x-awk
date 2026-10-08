@@ -176,8 +176,12 @@
 
 ; Records and fields are cut by the platform's lexer (x/reader/lexer):
 ; tokenizer bases made from data rules, their analysers native code.
-; awk/split.x makes one a separator and keeps it.
+; awk/split.x makes one a separator and keeps it.  The Lexer loads its
+; compiled-code cache (x/tool/asm-cache) on the first make; imported here,
+; it is in the state image instead of read from source on every run that
+; reads input.
 (import x/reader/lexer)
+(import x/tool/asm-cache)
 (def lexer-make (fn (_ rules end) (Lexer make rules end)))
 (def lexer-run (fn (_ tag opens continues) (Lexer run tag opens continues)))
 (def lexer-skip (fn (_ class) (Lexer skip class)))
