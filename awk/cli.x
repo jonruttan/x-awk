@@ -18,6 +18,11 @@
 ; that read progfiles, run, and exit.
 
 ; The engine flags x.sh plants ahead of the operands, plus argv0.
+(module awk/cli)
+(import awk/eval awk-run-cli awk-str-index)
+(import awk/prims
+  file-read-all file-write filter string-append string-concat
+  string-length string-ref string=? substring sys-exit)
 (def %awk-cli-engine-flag?
   (fn (_ s)
     (if (string=? s "--quiet") #t
@@ -60,7 +65,7 @@
     (def assigns
       (fn (self vs)
         (if (null? vs) ()
-          (let ((eq-at (%awk-str-index (first vs) "=")))
+          (let ((eq-at (awk-str-index (first vs) "=")))
             (if (= eq-at 0) (lit bad)
               (let ((more (self (rest vs))))
                 (if (eq? more (lit bad)) more
@@ -139,7 +144,10 @@
         (sys-exit (%awk-refuse (Opts unknown (Opts parse-leading %awk-options argv)))))
       ((null? prog) (sys-exit (%awk-refuse ())))
       (#t (sys-exit
-            (%awk-run-cli prog
+            (awk-run-cli prog
               (%awk-cli-get (lit fs) plan)
               (%awk-cli-get (lit assigns) plan)
               (%awk-cli-get (lit argv) plan)))))))
+
+(provide awk/cli
+  awk-argv awk-main awk-parse-cli)

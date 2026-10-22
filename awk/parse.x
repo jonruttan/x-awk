@@ -36,6 +36,9 @@
 
 ; --- Token peeks -------------------------------------------------------------
 
+(module awk/parse)
+(import awk/lex awk-tokenize)
+(import awk/prims append regex-compile reverse string-append string=?)
 (def %awk-p-label
   (fn (_ toks) (if (null? toks) (lit eof) (first (first toks)))))
 
@@ -82,7 +85,7 @@
 
 ; l-value or not: assignment and ++/-- land on (var _), (field _), or an
 ; array element (index _ _).
-(def %awk-p-lval?
+(def awk-p-lval?
   (fn (_ ast)
     (if (eq? (first ast) (lit var)) #t
       (if (eq? (first ast) (lit field)) #t
@@ -153,7 +156,7 @@
   (fn (_ ts gt)
     (if (if (eq? (%awk-p-label ts) (lit name)) #t (%awk-p-op? ts "$"))
       (let ((r (%awk-p-primary ts gt)))
-        (if (%awk-p-lval? (first r)) r
+        (if (awk-p-lval? (first r)) r
           (%awk-p-err "getline needs a variable, element or field" ts)))
       (pair () ts))))
 
@@ -232,12 +235,12 @@
               (pair (first r) (rest r))))
           ((%awk-p-op? toks "++")
             (let ((r (%awk-p-primary (rest toks) gt)))
-              (if (%awk-p-lval? (first r))
+              (if (awk-p-lval? (first r))
                 (pair (list (lit preinc) (first r)) (rest r))
                 (%awk-p-err "++ needs a variable or field" toks))))
           ((%awk-p-op? toks "--")
             (let ((r (%awk-p-primary (rest toks) gt)))
-              (if (%awk-p-lval? (first r))
+              (if (awk-p-lval? (first r))
                 (pair (list (lit predec) (first r)) (rest r))
                 (%awk-p-err "-- needs a variable or field" toks))))
           (#t (%awk-p-err "unexpected token" toks)))))))
@@ -248,9 +251,9 @@
     (def r (%awk-p-primary toks gt))
     (def ast (first r))
     (def ts (rest r))
-    (if (if (%awk-p-op? ts "++") (%awk-p-lval? ast) #f)
+    (if (if (%awk-p-op? ts "++") (awk-p-lval? ast) #f)
       (pair (list (lit postinc) ast) (rest ts))
-      (if (if (%awk-p-op? ts "--") (%awk-p-lval? ast) #f)
+      (if (if (%awk-p-op? ts "--") (awk-p-lval? ast) #f)
         (pair (list (lit postdec) ast) (rest ts))
         r))))
 
@@ -441,7 +444,7 @@
     (def r (%awk-p-ternary toks gt))
     (def op (%awk-p-asgn-op (rest r)))
     (if (null? op) r
-      (if (%awk-p-lval? (first r))
+      (if (awk-p-lval? (first r))
         (let ((rhs (%awk-p-expr (%awk-p-skip-nl (rest (rest r))) gt)))
           (pair
             (list (lit assign) (first r)
@@ -744,3 +747,6 @@
               (self (rest r) (pair (first r) acc)))
             (self ts2 acc)))))
     (go toks ())))
+
+(provide awk/parse
+  awk-p-lval? awk-parse)

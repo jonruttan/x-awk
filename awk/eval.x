@@ -28,6 +28,33 @@
 
 ; --- Run state ---------------------------------------------------------------
 
+(module awk/eval)
+(import awk/lex
+  awk-lex-digit? awk-lex-name-char? awk-lex-name-start? awk-lex-num)
+(import awk/parse awk-p-lval? awk-parse)
+(import awk/prims
+  append byte-at byte-len char->integer file-close file-exists?
+  file-open-append file-open-read file-open-write file-read-fd
+  file-write float->string float-atan2 float-cos float-exp float-from
+  float-log float-pow float-sin float-sqrt heap-collect integer->char
+  length list->string make-rng map nth proc-capture proc-run
+  regex-compile regex-find-at regex-search regex-split reverse rng-int
+  set-first! string-append string-concat string-length string-ref
+  string=? substring sys-close sys-dup2 sys-exec sys-exit sys-fork
+  sys-pipe sys-sigpipe-default! sys-sigpipe-ignore! sys-wait)
+(import awk/split
+  awk-cut-records awk-requeue-text awk-split-blanks awk-split-char)
+
+; fmt formats with this module's converters, and this module formats with
+; fmt's sprintf.  fmt is loaded and its sprintf reached through the module
+; at the first call, so neither module loads the other while it loads.
+(def %awk-fmt ())
+(def %awk-sprintf
+  (fn (_ f args)
+    (if (null? %awk-fmt)
+      (do (import awk/fmt) (set! %awk-fmt (module awk/fmt)))
+      ())
+    ((eval (lit awk-sprintf) %awk-fmt) f args)))
 (def %awk-genv ())      ; ((name . vbox) ...), newest first
 (def %awk-f0 "")        ; the current record's text
 (def %awk-fields ())    ; current fields, as values (strnum or string)
@@ -177,7 +204,7 @@
         (if (if (= b 32) #t (= b 9)) (self s end (+ i 1)) i)))))
 (def %awk-b-digit-at?
   (fn (_ s end j)
-    (if (>= j end) #f (%awk-lex-digit? (byte-at s j)))))
+    (if (>= j end) #f (awk-lex-digit? (byte-at s j)))))
 (def %awk-b-num-starts?
   (fn (_ s end i)
     (if (%awk-b-digit-at? s end i) #t
@@ -198,7 +225,7 @@
           (let ((i1 (%awk-b-sign s end i0)))
             (if (not (%awk-b-num-starts? s end i1))
               (pair 0 0)
-              (let ((r (%awk-lex-num s i1 end)))
+              (let ((r (awk-lex-num s i1 end)))
                 (pair
                   (if neg (- 0 (first (rest (first r))))
                     (first (rest (first r))))
@@ -215,7 +242,7 @@
             (let ((i1 (%awk-b-sign s end i0)))
               (if (not (%awk-b-num-starts? s end i1))
                 ()
-                (let ((r (%awk-lex-num s i1 end)))
+                (let ((r (awk-lex-num s i1 end)))
                   (if (= (%awk-b-ws s end (rest r)) end)
                     (if neg (- 0 (first (rest (first r))))
                       (first (rest (first r))))
@@ -227,7 +254,7 @@
     (def n (%awk-looks-numeric text))
     (if (null? n) text (list (lit strnum) text n))))
 
-(def %awk-to-num
+(def awk-to-num
   (fn (_ v)
     (match
       ((null? v) 0)
@@ -243,7 +270,7 @@
 ; non-negative rational. The (+ 0 ...) is a no-cost guard for older platform
 ; trees whose numeric tower could leave a subtract non-demoted at large
 ; denominators; a current tree demotes on its own.
-(def %awk-trunc
+(def awk-trunc
   (fn (_ x)
     (+ 0
       (if (< x 0) (- 0 (- (- 0 x) (% (- 0 x) 1))) (- x (% x 1))))))
@@ -270,9 +297,9 @@
     (if (= 0 (% n 1))
       (%awk-int->str n)
       (let ((f (%awk-var-get "CONVFMT")))
-        (%awk-sprintf (if (null? f) "%.6g" (%awk-to-str f)) (list n))))))
+        (%awk-sprintf (if (null? f) "%.6g" (awk-to-str f)) (list n))))))
 
-(def %awk-to-str
+(def awk-to-str
   (fn (_ v)
     (match
       ((null? v) "")
@@ -317,9 +344,9 @@
 (def %awk-cmp
   (fn (_ a b)
     (if (if (%awk-numish? a) (%awk-numish? b) #f)
-      (let ((x (%awk-to-num a)) (y (%awk-to-num b)))
+      (let ((x (awk-to-num a)) (y (awk-to-num b)))
         (if (< x y) (- 0 1) (if (> x y) 1 0)))
-      (%awk-str-cmp (%awk-to-str a) (%awk-to-str b)))))
+      (%awk-str-cmp (awk-to-str a) (awk-to-str b)))))
 
 (def %awk-bool (fn (_ b) (if b 1 0)))
 
@@ -329,7 +356,7 @@
 ;   FS = " "     runs of blanks separate, leading/trailing ignored
 ;   FS = one c   that character, literally
 ;   FS = other   an ERE, compiled once and cached
-; The first two are awk/split.x's lexers (%awk-split-blanks, %awk-split-char),
+; The first two are awk/split.x's lexers (awk-split-blanks, awk-split-char),
 ; native code a byte; the third is the regex engine's.
 
 ; Split text by a separator STRING, POSIX's three regimes.  An empty text
@@ -339,9 +366,9 @@
   (fn (_ text fs)
     (match
       ((= (string-length text) 0) ())
-      ((string=? fs " ") (%awk-split-blanks text))
+      ((string=? fs " ") (awk-split-blanks text))
       ((= (string-length fs) 1)
-        (%awk-split-char text (byte-at fs 0)))
+        (awk-split-char text (byte-at fs 0)))
       (#t
         (let ((rx (if (if (pair? %awk-fs-cache)
                         (string=? (first %awk-fs-cache) fs) #f)
@@ -353,12 +380,12 @@
 
 (def %awk-split-record
   (fn (_ rec)
-    (def fs (%awk-to-str (first %awk-fs-box)))
+    (def fs (awk-to-str (first %awk-fs-box)))
     (map (fn (_ t) (%awk-input-val t))
       ; paragraph mode (RS=""): a newline separates fields ALWAYS, on
       ; top of whatever FS says -- POSIX's one field-splitting override.
-      (if (string=? (%awk-to-str (first %awk-rs-box)) "")
-        (let ((lines (%awk-split-char rec 10)))
+      (if (string=? (awk-to-str (first %awk-rs-box)) "")
+        (let ((lines (awk-split-char rec 10)))
           (def flat
             (fn (self ls)
               (if (null? ls) ()
@@ -373,7 +400,7 @@
 ; the current FS applies.
 (def %awk-split-call
   (fn (_ arg-nodes)
-    (def s (%awk-to-str (%awk-eval (first arg-nodes))))
+    (def s (awk-to-str (%awk-eval (first arg-nodes))))
     (def arr-node (first (rest arg-nodes)))
     (if (not (eq? (first arr-node) (lit var)))
       (Err raise (lit awk) "awk: split needs an array name" ())
@@ -384,11 +411,11 @@
         (def texts
           (match
             ((null? fs-node)
-              (%awk-split-by s (%awk-to-str (%awk-var-get "FS"))))
+              (%awk-split-by s (awk-to-str (%awk-var-get "FS"))))
             ((eq? (first fs-node) (lit ere))
               (if (= (string-length s) 0) ()
                 (regex-split s (first (rest fs-node)))))
-            (#t (%awk-split-by s (%awk-to-str (%awk-eval fs-node))))))
+            (#t (%awk-split-by s (awk-to-str (%awk-eval fs-node))))))
         (def go
           (fn (self ts i)
             (if (null? ts) (- i 1)
@@ -426,7 +453,7 @@
 ; a match against $0.
 (def %awk-match-call
   (fn (_ nodes)
-    (def s (%awk-to-str (%awk-eval (first nodes))))
+    (def s (awk-to-str (%awk-eval (first nodes))))
     (def rx (%awk-match-rx (first (rest nodes))))
     (def m (regex-search s rx))
     (if (null? m)
@@ -440,14 +467,14 @@
 (def %awk-sub-call
   (fn (_ global? nodes)
     (def rx (%awk-match-rx (first nodes)))
-    (def repl (%awk-to-str (%awk-eval (first (rest nodes)))))
+    (def repl (awk-to-str (%awk-eval (first (rest nodes)))))
     (def target
       (if (null? (rest (rest nodes)))
         (list (lit field) (list (lit num) 0))
         (first (rest (rest nodes)))))
-    (if (not (%awk-p-lval? target))
+    (if (not (awk-p-lval? target))
       (Err raise (lit awk) "awk: sub/gsub target must be assignable" ())
-      (let ((s (%awk-to-str (%awk-lval-get target))))
+      (let ((s (awk-to-str (%awk-lval-get target))))
         (def len (string-length s))
         ; An empty match replaces, keeps the next character, and steps
         ; past it -- gsub(/x*/, "-", "abc") is "-a-b-c-", count 4.
@@ -489,7 +516,7 @@
 
 (def %awk-field-get
   (fn (_ idx)
-    (def i (%awk-trunc idx))
+    (def i (awk-trunc idx))
     (match
       ((= i 0) (%awk-input-val %awk-f0))
       ((< i 0) (Err raise (lit awk) "awk: negative field index" i))
@@ -508,7 +535,7 @@
     (def go
       (fn (self vs)
         (if (null? vs) ()
-          (pair (%awk-to-str (first vs))
+          (pair (awk-to-str (first vs))
             (if (null? (rest vs)) ()
               (pair ofs (self (rest vs))))))))
     (string-concat (go vals))))
@@ -516,7 +543,7 @@
 (def %awk-rebuild-record!
   (fn (_)
     (set! %awk-f0
-      (%awk-join-fields %awk-fields (%awk-to-str (%awk-var-get "OFS"))))
+      (%awk-join-fields %awk-fields (awk-to-str (%awk-var-get "OFS"))))
     (%awk-var-set! "NF" (length %awk-fields))))
 
 ; The field list with slot i (1-based) holding v, gaps filled with "".
@@ -542,10 +569,10 @@
 
 (def %awk-field-set!
   (fn (_ idx v)
-    (def i (%awk-trunc idx))
+    (def i (awk-trunc idx))
     (match
       ((< i 0) (Err raise (lit awk) "awk: negative field index" i))
-      ((= i 0) (%awk-set-record! (%awk-to-str v)))
+      ((= i 0) (%awk-set-record! (awk-to-str v)))
       (#t
         (do (set! %awk-fields (%awk-fields-put %awk-fields i v))
             (%awk-rebuild-record!))))))
@@ -570,7 +597,7 @@
   (fn (self s t ls lt i)
     (if (> (+ i lt) ls) 0
       (if (%awk-si-hit? s t lt i 0) (+ i 1) (self s t ls lt (+ i 1))))))
-(def %awk-str-index
+(def awk-str-index
   (fn (_ s t) (%awk-si-go s t (byte-len s) (byte-len t) 0)))
 
 ; --- The float boundary and the PRNG -----------------------------------------
@@ -604,7 +631,7 @@
                       (if (>= j end) (list->string (reverse acc2))
                         (self2 (+ j 1) (pair (string-ref s j) acc2)))))
                   (copy i acc)))
-              ((%awk-lex-digit? ci)
+              ((awk-lex-digit? ci)
                 (let ((live (if started #t (not (= ci 48)))))
                   (def sig2 (if live (+ sig 1) sig))
                   (self (+ i 1) sig2 live
@@ -613,7 +640,7 @@
     (first (%awk-str-prefix-num (go 0 0 #f ())))))
 
 (def %awk-math-1
-  (fn (_ op v) (%awk-float->rat (op (float-from (%awk-to-num v))))))
+  (fn (_ op v) (%awk-float->rat (op (float-from (awk-to-num v))))))
 
 ; rand state: xorshift behind srand's seed protocol.  srand() with no
 ; argument reseeds with the previous seed here (C awk uses time of day;
@@ -655,14 +682,14 @@
         (if (if (pair? args) (%awk-array? (first args)) #f)
           (%awk-arr-count (first args))
           (string-length
-            (if (null? args) %awk-f0 (%awk-to-str (first args))))))
+            (if (null? args) %awk-f0 (awk-to-str (first args))))))
       ((string=? name "index")
-        (%awk-str-index (%awk-to-str (first args))
-          (%awk-to-str (first (rest args)))))
+        (awk-str-index (awk-to-str (first args))
+          (awk-to-str (first (rest args)))))
       ((string=? name "sprintf")
-        (%awk-sprintf (%awk-to-str (first args)) (rest args)))
-      ((string=? name "toupper") (%awk-mapcase (%awk-to-str (first args)) #t))
-      ((string=? name "tolower") (%awk-mapcase (%awk-to-str (first args)) #f))
+        (%awk-sprintf (awk-to-str (first args)) (rest args)))
+      ((string=? name "toupper") (%awk-mapcase (awk-to-str (first args)) #t))
+      ((string=? name "tolower") (%awk-mapcase (awk-to-str (first args)) #f))
       ((string=? name "sin") (%awk-math-1 float-sin (first args)))
       ((string=? name "cos") (%awk-math-1 float-cos (first args)))
       ((string=? name "exp") (%awk-math-1 float-exp (first args)))
@@ -670,26 +697,26 @@
       ((string=? name "sqrt") (%awk-math-1 float-sqrt (first args)))
       ((string=? name "atan2")
         (%awk-float->rat
-          (float-atan2 (float-from (%awk-to-num (first args)))
-            (float-from (%awk-to-num (first (rest args)))))))
+          (float-atan2 (float-from (awk-to-num (first args)))
+            (float-from (awk-to-num (first (rest args)))))))
       ((string=? name "rand") (%awk-rand))
       ((string=? name "srand")
         (%awk-srand!
-          (if (null? args) %awk-seed (%awk-trunc (%awk-to-num (first args))))))
-      ((string=? name "close") (%awk-close-name! (%awk-to-str (first args))))
+          (if (null? args) %awk-seed (awk-trunc (awk-to-num (first args))))))
+      ((string=? name "close") (%awk-close-name! (awk-to-str (first args))))
       ((string=? name "system")
-        (proc-run (list "/bin/sh" "-c" (%awk-to-str (first args)))))
+        (proc-run (list "/bin/sh" "-c" (awk-to-str (first args)))))
       ((string=? name "int")
-        (%awk-trunc (%awk-to-num (first args))))
+        (awk-trunc (awk-to-num (first args))))
       ((string=? name "substr")
-        (let ((s (%awk-to-str (first args))))
+        (let ((s (awk-to-str (first args))))
           (def len (string-length s))
           ; POSIX: 1-based start m, optional count n; the window is
           ; clamped to the string, and a start below 1 eats into n.
-          (def m (%awk-trunc (%awk-to-num (first (rest args)))))
+          (def m (awk-trunc (awk-to-num (first (rest args)))))
           (def n (if (null? (rest (rest args)))
                    len
-                   (%awk-trunc (%awk-to-num (first (rest (rest args)))))))
+                   (awk-trunc (awk-to-num (first (rest (rest args)))))))
           (def from (if (< m 1) 0 (- m 1)))
           (def upto (+ (- m 1) n))
           (def to (if (> upto len) len (if (< upto 0) 0 upto)))
@@ -707,16 +734,16 @@
   (fn (_ node)
     (if (eq? (first node) (lit ere))
       (first (rest node))
-      (regex-compile (%awk-to-str (%awk-eval node))))))
+      (regex-compile (awk-to-str (%awk-eval node))))))
 
 ; One key from a subscript list: each subscript renders as a string, and
 ; multiple join with SUBSEP -- POSIX's one-key reading of a[i,j].
 (def %awk-subs-key
   (fn (_ subs)
-    (def texts (map (fn (_ e) (%awk-to-str (%awk-eval e))) subs))
+    (def texts (map (fn (_ e) (awk-to-str (%awk-eval e))) subs))
     (if (null? (rest texts))
       (first texts)
-      (let ((sep (%awk-to-str (%awk-var-get "SUBSEP"))))
+      (let ((sep (awk-to-str (%awk-var-get "SUBSEP"))))
         (def go
           (fn (self ts)
             (if (null? (rest ts)) (first ts)
@@ -730,7 +757,7 @@
       ((eq? (first lv) (lit index))
         (first (%awk-arr-ref! (%awk-var-array! (first (rest lv)))
                  (%awk-subs-key (first (rest (rest lv)))))))
-      (#t (%awk-field-get (%awk-to-num (%awk-eval (first (rest lv)))))))))
+      (#t (%awk-field-get (awk-to-num (%awk-eval (first (rest lv)))))))))
 
 (def %awk-lval-set!
   (fn (_ lv v)
@@ -738,18 +765,18 @@
       ((eq? (first lv) (lit var))
         ; NF is live: assigning it resizes the fields and rebuilds $0.
         (if (string=? (first (rest lv)) "NF")
-          (%awk-set-nf! (%awk-trunc (%awk-to-num v)))
+          (%awk-set-nf! (awk-trunc (awk-to-num v)))
           (%awk-var-set! (first (rest lv)) v)))
       ((eq? (first lv) (lit index))
         (set-first!
           (%awk-arr-ref! (%awk-var-array! (first (rest lv)))
             (%awk-subs-key (first (rest (rest lv)))))
           v))
-      (#t (%awk-field-set! (%awk-to-num (%awk-eval (first (rest lv)))) v)))))
+      (#t (%awk-field-set! (awk-to-num (%awk-eval (first (rest lv)))) v)))))
 
 (def %awk-incr!
   (fn (_ lv delta pre?)
-    (def old (%awk-to-num (%awk-lval-get lv)))
+    (def old (awk-to-num (%awk-lval-get lv)))
     (def new (+ old delta))
     (%awk-lval-set! lv new)
     (if pre? new old)))
@@ -891,7 +918,7 @@
     (if (eq? label (lit num)) (first (rest node))
     (if (eq? label (lit str)) (first (rest node))
     (if (eq? label (lit field))
-      (%awk-field-get (%awk-to-num (%awk-eval (first (rest node)))))
+      (%awk-field-get (awk-to-num (%awk-eval (first (rest node)))))
     (if (eq? label (lit cmp))
       (let ((op (first (rest node))))
         (let ((c (%awk-cmp (%awk-eval (first (rest (rest node))))
@@ -904,8 +931,8 @@
                     (if (string=? op "==") (= c 0)
                       (not (= c 0))))))))))
     (if (eq? label (lit concat))
-      (string-append (%awk-to-str (%awk-eval (first (rest node))))
-        (%awk-to-str (%awk-eval (first (rest (rest node))))))
+      (string-append (awk-to-str (%awk-eval (first (rest node))))
+        (awk-to-str (%awk-eval (first (rest (rest node))))))
     (if (eq? label (lit assign))
       (let ((v (%awk-eval (first (rest (rest node))))))
         (if (%awk-array? v)
@@ -913,8 +940,8 @@
           (do (%awk-lval-set! (first (rest node)) v) v)))
     (if (eq? label (lit bin))
       (let ((op (first (rest node))))
-        (let ((a (%awk-to-num (%awk-eval (first (rest (rest node)))))))
-          (let ((b (%awk-to-num
+        (let ((a (awk-to-num (%awk-eval (first (rest (rest node)))))))
+          (let ((b (awk-to-num
                      (%awk-eval (first (rest (rest (rest node))))))))
             (if (string=? op "+") (+ a b)
               (if (string=? op "-") (- a b)
@@ -922,7 +949,7 @@
                   (if (string=? op "/") (/ a b)
                     (if (string=? op "%")
                       ; awk's % is fmod: exact, sign follows the dividend
-                      (- a (* b (%awk-trunc (/ a b))))
+                      (- a (* b (awk-trunc (/ a b))))
                       (Err raise (lit awk)
                         "awk: unknown operator" op)))))))))
     ; a[k]: the shared l-value path -- which CREATES the element,
@@ -943,12 +970,12 @@
     (if (eq? label (lit match))
       (%awk-bool
         (not (null?
-          (regex-search (%awk-to-str (%awk-eval (first (rest node))))
+          (regex-search (awk-to-str (%awk-eval (first (rest node))))
             (%awk-match-rx (first (rest (rest node))))))))
     (if (eq? label (lit nomatch))
       (%awk-bool
         (null?
-          (regex-search (%awk-to-str (%awk-eval (first (rest node))))
+          (regex-search (awk-to-str (%awk-eval (first (rest node))))
             (%awk-match-rx (first (rest (rest node)))))))
     ; (k in a): membership WITHOUT creating -- the counterpart rule.
     (if (eq? label (lit in))
@@ -960,7 +987,7 @@
                 ; (i, j) in a: the subscripts joined as a[i,j] joins them
                 (if (eq? (first k) (lit subs))
                   (%awk-subs-key (first (rest k)))
-                  (%awk-to-str (%awk-eval k))))
+                  (awk-to-str (%awk-eval k))))
               #f))))
     (if (eq? label (lit ternary))
       (if (%awk-truthy? (%awk-eval (first (rest node))))
@@ -989,10 +1016,10 @@
       ; a bare /ere/ in expression position asks: does $0 match?
       (%awk-bool (not (null? (regex-search %awk-f0 (first (rest node))))))
     (if (eq? label (lit neg))
-      (- 0 (%awk-to-num (%awk-eval (first (rest node)))))
+      (- 0 (awk-to-num (%awk-eval (first (rest node)))))
     (if (eq? label (lit pow))
-      (let ((a (%awk-to-num (%awk-eval (first (rest node))))))
-        (let ((e (%awk-to-num (%awk-eval (first (rest (rest node)))))))
+      (let ((a (awk-to-num (%awk-eval (first (rest node))))))
+        (let ((e (awk-to-num (%awk-eval (first (rest (rest node)))))))
           ; a fractional exponent leaves the rationals: libm's pow, read
           ; back through the same printed-digits door as the math set
           (if (not (= 0 (% e 1)))
@@ -1011,9 +1038,9 @@
                      (%awk-next-record!)
                      (if (eq? (first src) (lit cmd))
                        (%awk-getline-cmd!
-                         (%awk-to-str (%awk-eval (first (rest src)))))
+                         (awk-to-str (%awk-eval (first (rest src)))))
                        (%awk-getline-file!
-                         (%awk-to-str (%awk-eval (first (rest src)))))))))
+                         (awk-to-str (%awk-eval (first (rest src)))))))))
           (if (eq? rec (lit eof)) 0
             (if (eq? rec (lit noent)) (- 0 1)
               (do (if (null? (first (rest node)))
@@ -1036,7 +1063,7 @@
       (let ((c (%awk-exec (first stmts))))
         (if (null? c) (self (rest stmts)) c)))))
 
-; What print shows for a value: like %awk-to-str, but a non-integral
+; What print shows for a value: like awk-to-str, but a non-integral
 ; number renders through OFMT where conversions use CONVFMT -- POSIX's
 ; one deliberate asymmetry between output and conversion.
 (def %awk-out-str
@@ -1045,14 +1072,14 @@
       (if (= 0 (% v 1))
         (%awk-int->str v)
         (let ((f (%awk-var-get "OFMT")))
-          (%awk-sprintf (if (null? f) "%.6g" (%awk-to-str f)) (list v))))
-      (%awk-to-str v))))
+          (%awk-sprintf (if (null? f) "%.6g" (awk-to-str f)) (list v))))
+      (awk-to-str v))))
 
 ; A print's whole output, ORS included, as ONE string -- so stdout and a
 ; redirection target share every formatting rule.
 (def %awk-print-str
   (fn (_ args)
-    (def ofs (%awk-to-str (first %awk-ofs-box)))
+    (def ofs (awk-to-str (first %awk-ofs-box)))
     (def go
       (fn (self as acc)
         (if (null? as) (reverse acc)
@@ -1062,11 +1089,11 @@
     (string-concat
       (append
         (if (null? args) (list %awk-f0) (go args ()))
-        (list (%awk-to-str (first %awk-ors-box)))))))
+        (list (awk-to-str (first %awk-ors-box)))))))
 
 (def %awk-printf-str
   (fn (_ args)
-    (%awk-sprintf (%awk-to-str (%awk-eval (first args)))
+    (%awk-sprintf (awk-to-str (%awk-eval (first args)))
       (map (fn (_ a) (%awk-eval a)) (rest args)))))
 
 ; The redirection table: one fd per target path, opened on first use
@@ -1185,7 +1212,7 @@
         (do (display (%awk-printf-str (rest stmt))) ()))
       ((eq? label (lit printr))
         (do (let ((label (first (rest stmt))))
-              (def target (%awk-to-str (%awk-eval (first (rest (rest stmt))))))
+              (def target (awk-to-str (%awk-eval (first (rest (rest stmt))))))
               (file-write
                 (if (eq? label (lit pipe))
                   (%awk-cmd-out-fd! target)
@@ -1194,7 +1221,7 @@
             ()))
       ((eq? label (lit printfr))
         (do (let ((label (first (rest stmt))))
-              (def target (%awk-to-str (%awk-eval (first (rest (rest stmt))))))
+              (def target (awk-to-str (%awk-eval (first (rest (rest stmt))))))
               (file-write
                 (if (eq? label (lit pipe))
                   (%awk-cmd-out-fd! target)
@@ -1294,7 +1321,7 @@
         ; the status records here -- the ONE place exit's value is
         ; known -- so every consumer of the control needs no plumbing
         (let ((code (if (null? (first (rest stmt))) %awk-exit-code
-                      (%awk-trunc (%awk-to-num (%awk-eval (first (rest stmt))))))))
+                      (awk-trunc (awk-to-num (%awk-eval (first (rest stmt))))))))
           (set! %awk-exit-code code)
           (list (lit exit) code)))
       ((eq? label (lit return))
@@ -1367,7 +1394,7 @@
                 (first (rest q)))
             (let ((cells (rest (rest r))))
               (do (set-first! cells
-                    (%awk-requeue-text (rest q)
+                    (awk-requeue-text (rest q)
                       (list->string (list (integer->char (first q))))
                       (substring (first cells) (first (rest cells))
                         (byte-len (first cells)))))
@@ -1388,7 +1415,7 @@
                     (byte-len (first cells)))))
         (if (= (byte-len text) 0)
           (if (%awk-rd-fill! r) (%awk-rd-sep r b) (lit eof))
-          (let ((cut (%awk-cut-records text b)))
+          (let ((cut (awk-cut-records text b)))
             (set-first! cells (rest cut))
             (set-first! (rest cells) 0)
             (if (null? (first cut))
@@ -1446,7 +1473,7 @@
 ; the one-true-awk reading), and a change applies from the next record.
 (def %awk-rd-next!
   (fn (_ r)
-    (let ((rs (%awk-to-str (first %awk-rs-box))))
+    (let ((rs (awk-to-str (first %awk-rs-box))))
       (if (= (byte-len rs) 0)
         (if (%awk-rd-skip-nl r) (%awk-rd-para r 0) (lit eof))
         (%awk-rd-sep r (byte-at rs 0))))))
@@ -1477,8 +1504,8 @@
           (let ((ci (char->integer (string-ref op i))))
             (if (= ci 61) (> i 0)          ; =
               (if (if (= i 0)
-                    (%awk-lex-name-start? ci)
-                    (%awk-lex-name-char? ci))
+                    (awk-lex-name-start? ci)
+                    (awk-lex-name-char? ci))
                 (self (+ i 1))
                 #f))))))
     (go 0)))
@@ -1494,12 +1521,12 @@
   (fn (self)
     (let ((argv (%awk-var-get "ARGV")))
       (if (if (%awk-array? argv)
-            (< %awk-argi (%awk-to-num (%awk-var-get "ARGC")))
+            (< %awk-argi (awk-to-num (%awk-var-get "ARGC")))
             #f)
         (let ((key (%awk-int->str %awk-argi)))
           (set! %awk-argi (+ %awk-argi 1))
           (if (%awk-arr-has? argv key)
-            (let ((op (%awk-to-str (first (%awk-arr-ref! argv key)))))
+            (let ((op (awk-to-str (first (%awk-arr-ref! argv key)))))
               (if (string=? op "") (self) op))
             (self)))
         ()))))
@@ -1515,7 +1542,7 @@
               (%awk-var-set! "FNR" 0)
               (set! %awk-recs (%awk-stdin-reader!))))
         (if (%awk-assign-operand? op)
-          (let ((eq-at (%awk-str-index op "=")))
+          (let ((eq-at (awk-str-index op "=")))
             (%awk-var-set! (substring op 0 (- eq-at 1))
               (%awk-input-val (substring op eq-at (string-length op))))
             (self))
@@ -1541,8 +1568,8 @@
       (let ((rec (%awk-rd-next! %awk-recs)))
         (if (eq? rec (lit eof))
           (do (set! %awk-recs ()) (self))
-          (do (set-first! %awk-nr-box (+ 1 (%awk-to-num (first %awk-nr-box))))
-              (set-first! %awk-fnr-box (+ 1 (%awk-to-num (first %awk-fnr-box))))
+          (do (set-first! %awk-nr-box (+ 1 (awk-to-num (first %awk-nr-box))))
+              (set-first! %awk-fnr-box (+ 1 (awk-to-num (first %awk-fnr-box))))
               rec)))
       (if (eq? %awk-recs (lit done))
         (lit eof)
@@ -1712,7 +1739,7 @@
 ; operands are read from them as each is reached), stdin read from the
 ; caller's fd on first need.  Answers the exit status for awk-main to hand
 ; Sys exit.
-(def %awk-run-cli
+(def awk-run-cli
   (fn (_ prog fs assigns operands)
     (def items (awk-parse prog))
     (%awk-reset!)
@@ -1734,3 +1761,6 @@
     (def code (%awk-run-items items))
     (%awk-close-outs!)
     code))
+
+(provide awk/eval
+  awk-run awk-run-cli awk-str-index awk-to-num awk-to-str awk-trunc)

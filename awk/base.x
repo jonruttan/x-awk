@@ -19,20 +19,17 @@
 ; per-character analyse callback cannot see and a scanner threads as one
 ; boolean. So: string-ref down the source, the lib/x/type/regex.x pattern.
 
+(module awk/base)
+(import awk/cli awk-argv awk-main awk-parse-cli)
+(import awk/eval awk-run)
+(import awk/lex awk-tokenize)
+(import awk/parse awk-parse)
+(import awk/printer awk-repl-print)
 (import awk/prims)
 (import awk/printer)
 
-(provide awk/base awk-version awk-tokenize awk-parse awk-run
-  awk-argv awk-parse-cli awk-main %awk-repl-print)
-
 (def awk-version "0.1.0")
 
-(include-once "./lex.x")
-(include-once "./parse.x")
-(include-once "./split.x")
-(include-once "./eval.x")
-(include-once "./fmt.x")
-(include-once "./cli.x")
 
 ; The numeric tower: helium's core arithmetic is integers, and awk's value
 ; model is rationals.  LAST, after the includes: the tower hooks number
@@ -40,3 +37,6 @@
 ; only the user's program text does.  Imported ahead of lex.x it doubles
 ; a source boot; from the state image it costs nothing measurable.
 (import x/num/tower)
+
+(provide awk/base
+  awk-version)

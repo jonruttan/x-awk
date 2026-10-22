@@ -110,7 +110,7 @@ got beta
 ### the CLI runner reads files with FILENAME and FNR
 
 ```awk
-(display (%awk-run-cli "{print FILENAME, FNR, NR}" () () (list "/tmp/x-awk-spec-scratch.txt")))
+(display (awk-run-cli "{print FILENAME, FNR, NR}" () () (list "/tmp/x-awk-spec-scratch.txt")))
 ```
 ---
 ```output
@@ -122,7 +122,7 @@ got beta
 ### operands are read from ARGV as each is reached: one set to "" is skipped
 
 ```awk
-(display (%awk-run-cli "BEGIN{ARGV[1] = \"\"} {print FILENAME, FNR}" () () (list "/no/such/file" "/tmp/x-awk-spec-scratch.txt")))
+(display (awk-run-cli "BEGIN{ARGV[1] = \"\"} {print FILENAME, FNR}" () () (list "/no/such/file" "/tmp/x-awk-spec-scratch.txt")))
 ```
 ---
 ```output
@@ -134,7 +134,7 @@ got beta
 ### an operand added in BEGIN, with ARGC raised, is read
 
 ```awk
-(display (%awk-run-cli "BEGIN{ARGV[1] = \"/tmp/x-awk-spec-scratch.txt\"; ARGC = 2} END{print NR}" () () ()))
+(display (awk-run-cli "BEGIN{ARGV[1] = \"/tmp/x-awk-spec-scratch.txt\"; ARGC = 2} END{print NR}" () () ()))
 ```
 ---
 ```output
@@ -164,7 +164,7 @@ Four-byte reads, so lines, blank lines and paragraphs all span chunks.
 ### a file operand streams the same records
 
 ```awk
-(display (%awk-run-cli "{n++} END{print n, NF, $0}" () () (list "/tmp/x-awk-spec-chunks.txt")))
+(display (awk-run-cli "{n++} END{print n, NF, $0}" () () (list "/tmp/x-awk-spec-chunks.txt")))
 ```
 ---
 ```output
@@ -175,7 +175,7 @@ Four-byte reads, so lines, blank lines and paragraphs all span chunks.
 ### paragraph mode across the chunks
 
 ```awk
-(display (%awk-run-cli "BEGIN{RS=\"\"} NR==1{print NF, length($0)} END{print NR, $0}" () () (list "/tmp/x-awk-spec-chunks.txt")))
+(display (awk-run-cli "BEGIN{RS=\"\"} NR==1{print NF, length($0)} END{print NR, $0}" () () (list "/tmp/x-awk-spec-chunks.txt")))
 ```
 ---
 ```output
@@ -191,7 +191,7 @@ Four-byte reads, so lines, blank lines and paragraphs all span chunks.
     (def cli-out (file-open-write cli-group))
     (file-write cli-out "root:x:0:\ndaemon:x:1:\n")
     (file-close cli-out)
-    (def cli-code (%awk-run-cli "{ print \"awk-\" $1 }" ":" () (list cli-group)))
+    (def cli-code (awk-run-cli "{ print \"awk-\" $1 }" ":" () (list cli-group)))
     (file-unlink cli-group)
     (display cli-code))
 ```
@@ -233,7 +233,7 @@ awk-daemon
 ### exit's value is the run's status
 
 ```awk
-(display (%awk-run-cli "BEGIN{exit 4}" () () ()))
+(display (awk-run-cli "BEGIN{exit 4}" () () ()))
 ```
 ---
     4
@@ -241,7 +241,7 @@ awk-daemon
 ### -v assignments apply ahead of BEGIN
 
 ```awk
-(display (%awk-run-cli "BEGIN{print x; exit}" () (list (pair "x" "7")) ()))
+(display (awk-run-cli "BEGIN{print x; exit}" () (list (pair "x" "7")) ()))
 ```
 ---
 ```output
