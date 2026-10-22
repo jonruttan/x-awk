@@ -6,7 +6,7 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; %awk-sprintf FMT VALS -> string. Serves printf, sprintf, and -- through
+; awk-sprintf FMT VALS -> string. Serves printf, sprintf, and -- through
 ; OFMT/CONVFMT -- every number-to-string conversion in the bundle, so one
 ; engine owns all rendering. Conversions: d i o x X u c s f e E g G %% with the
 ; flags - + space 0 #, width, precision, and * for either.
@@ -21,6 +21,12 @@
 ; substituted zero would be a silent wrong number.
 
 ; n >= 0 integer to digits in base (2..16).
+(module awk/fmt)
+(import awk/eval awk-to-num awk-to-str awk-trunc)
+(import awk/lex awk-lex-digit? awk-pow10)
+(import awk/prims
+  char->integer integer->char list->string reverse string-append
+  string-concat string-length string-ref substring)
 (def %awk-fmt-digits
   (fn (_ n base upper)
     (if (= n 0) "0"
@@ -59,9 +65,9 @@
 ; trailing zeros stripped when STRIP.
 (def %awk-fmt-fixed
   (fn (_ a decs strip)
-    (def i (%awk-trunc a))
-    (def scale (%awk-pow10 decs))
-    (def d (%awk-trunc (+ (* (- a i) scale) (/ 1 2))))
+    (def i (awk-trunc a))
+    (def scale (awk-pow10 decs))
+    (def d (awk-trunc (+ (* (- a i) scale) (/ 1 2))))
     (def i2 (if (= d scale) (+ i 1) i))
     (def d2 (if (= d scale) 0 d))
     (def frac
@@ -69,8 +75,8 @@
         (let ((digits (%awk-fmt-zpad (%awk-fmt-digits d2 10 #f) decs)))
           (if strip (%awk-fmt-strip digits) digits))))
     (if (= (string-length frac) 0)
-      (%awk-fmt-digits (%awk-trunc i2) 10 #f)
-      (string-append (%awk-fmt-digits (%awk-trunc i2) 10 #f)
+      (%awk-fmt-digits (awk-trunc i2) 10 #f)
+      (string-append (%awk-fmt-digits (awk-trunc i2) 10 #f)
         (string-append "." frac)))))
 
 ; Normalize a > 0 to mant in [1,10): (mant . exponent).
@@ -90,12 +96,12 @@
     (def m (first norm))
     (def e (rest norm))
     ; round the mantissa; a carry to 10.0 renormalizes
-    (def scale (%awk-pow10 decs))
-    (def md (%awk-trunc (+ (* m scale) (/ 1 2))))
+    (def scale (awk-pow10 decs))
+    (def md (awk-trunc (+ (* m scale) (/ 1 2))))
     (def carried (>= md (* 10 scale)))
     (def md2 (if carried (/ md 10) md))
     (def e2 (if (if carried (not (= a 0)) #f) (+ e 1) e))
-    (def md3 (%awk-trunc md2))
+    (def md3 (awk-trunc md2))
     (def all (%awk-fmt-zpad (%awk-fmt-digits md3 10 #f) (+ decs 1)))
     (def head (substring all 0 1))
     (def frac
@@ -152,7 +158,7 @@
 
 ; --- The scanner -------------------------------------------------------------
 
-(def %awk-sprintf ())
+(def awk-sprintf ())
 
 ; One conversion, spec already parsed.  Answers the rendered piece.
 (def %awk-fmt-one
@@ -160,14 +166,14 @@
     (match
       ((= conv #\%) (%awk-fmt-pad-str "%" width flag-minus))
       ((if (= conv #\d) #t (if (= conv #\i) #t (= conv #\u)))
-        (let ((n (%awk-trunc (%awk-to-num v))))
+        (let ((n (awk-trunc (awk-to-num v))))
           (def neg (< n 0))
           (def body (%awk-fmt-digits (if neg (- 0 n) n) 10 #f))
           (def body2 (if (< prec 0) body (%awk-fmt-zpad body prec)))
           (%awk-fmt-pad-num (%awk-fmt-sign neg flag-plus flag-space) body2
             width flag-minus (if (< prec 0) flag-zero #f))))
       ((if (= conv #\x) #t (if (= conv #\X) #t (= conv #\o)))
-        (let ((n (%awk-trunc (%awk-to-num v))))
+        (let ((n (awk-trunc (awk-to-num v))))
           (def neg (< n 0))
           (def base (if (= conv #\o) 8 16))
           (def body (%awk-fmt-digits (if neg (- 0 n) n) base (= conv #\X)))
@@ -184,30 +190,30 @@
             width flag-minus (if (< prec 0) flag-zero #f))))
       ((= conv #\c)
         (let ((s (if (number? v)
-                   (list->string (list (integer->char (%awk-trunc v))))
-                   (let ((t (%awk-to-str v)))
+                   (list->string (list (integer->char (awk-trunc v))))
+                   (let ((t (awk-to-str v)))
                      (if (= (string-length t) 0) "" (substring t 0 1))))))
           (%awk-fmt-pad-str s width flag-minus)))
       ((= conv #\s)
-        (let ((s (%awk-to-str v)))
+        (let ((s (awk-to-str v)))
           (def s2 (if (if (>= prec 0) (> (string-length s) prec) #f)
                     (substring s 0 prec) s))
           (%awk-fmt-pad-str s2 width flag-minus)))
       ((= conv #\f)
-        (let ((n (%awk-to-num v)))
+        (let ((n (awk-to-num v)))
           (def neg (< n 0))
           (%awk-fmt-pad-num (%awk-fmt-sign neg flag-plus flag-space)
             (%awk-fmt-fixed (if neg (- 0 n) n) (if (< prec 0) 6 prec) #f)
             width flag-minus flag-zero)))
       ((if (= conv #\e) #t (= conv #\E))
-        (let ((n (%awk-to-num v)))
+        (let ((n (awk-to-num v)))
           (def neg (< n 0))
           (%awk-fmt-pad-num (%awk-fmt-sign neg flag-plus flag-space)
             (%awk-fmt-sci (if neg (- 0 n) n) (if (< prec 0) 6 prec) #f
               (= conv #\E))
             width flag-minus flag-zero)))
       ((if (= conv #\g) #t (= conv #\G))
-        (let ((n (%awk-to-num v)))
+        (let ((n (awk-to-num v)))
           (def neg (< n 0))
           (%awk-fmt-pad-num (%awk-fmt-sign neg flag-plus flag-space)
             (%awk-fmt-g (if neg (- 0 n) n) (if (< prec 0) 6 prec)
@@ -216,7 +222,7 @@
       (#t (Err raise (lit awk)
             "awk: printf: unknown conversion character" conv)))))
 
-(set! %awk-sprintf
+(set! awk-sprintf
   (fn (_ fmt vals)
     (def end (string-length fmt))
     (def take
@@ -251,14 +257,14 @@
           (fn (self j acc)
             (if (>= j end) (pair acc j)
               (let ((ci (char->integer (string-ref fmt j))))
-                (if (%awk-lex-digit? ci)
+                (if (awk-lex-digit? ci)
                   (self (+ j 1) (+ (* acc 10) (- ci 48)))
                   (pair acc j))))))
         ; width: * pulls a value (negative reads as left-justified |w|)
         (def wr
           (if (if (< j0 end) (= (string-ref fmt j0) #\*) #f)
             (let ((t (take vs)))
-              (list (%awk-trunc (%awk-to-num (first t))) (+ j0 1) (rest t)))
+              (list (awk-trunc (awk-to-num (first t))) (+ j0 1) (rest t)))
             (let ((r (num j0 0))) (list (first r) (rest r) vs))))
         (def w0 (first wr))
         (def j1 (first (rest wr)))
@@ -270,7 +276,7 @@
           (if (if (< j1 end) (= (string-ref fmt j1) #\.) #f)
             (if (if (< (+ j1 1) end) (= (string-ref fmt (+ j1 1)) #\*) #f)
               (let ((t (take vs1)))
-                (list (%awk-trunc (%awk-to-num (first t))) (+ j1 2) (rest t)))
+                (list (awk-trunc (awk-to-num (first t))) (+ j1 2) (rest t)))
               (let ((r (num (+ j1 1) 0))) (list (first r) (rest r) vs1)))
             (list (- 0 1) j1 vs1)))
         (def p (first pr))
@@ -299,3 +305,6 @@
                     (pair (first r) pieces))))
               (self (+ i 1) vs (pair (substring fmt i (+ i 1)) pieces)))))))
     (go 0 vals ())))
+
+(provide awk/fmt
+  awk-sprintf)

@@ -27,14 +27,18 @@
 
 ; --- Character predicates (codes, not chars: one cast per character) ---------
 
-(def %awk-lex-digit? (fn (_ ci) (if (>= ci 48) (<= ci 57) #f)))
-(def %awk-lex-name-start?
+(module awk/lex)
+(import awk/prims
+  awk-symbol-type byte-at char->integer convert integer->char
+  list->string reverse string-length string-ref string=? substring)
+(def awk-lex-digit? (fn (_ ci) (if (>= ci 48) (<= ci 57) #f)))
+(def awk-lex-name-start?
   (fn (_ ci)
     (if (if (>= ci 65) (<= ci 90) #f) #t
       (if (if (>= ci 97) (<= ci 122) #f) #t
         (= ci 95)))))
-(def %awk-lex-name-char?
-  (fn (_ ci) (if (%awk-lex-name-start? ci) #t (%awk-lex-digit? ci))))
+(def awk-lex-name-char?
+  (fn (_ ci) (if (awk-lex-name-start? ci) #t (awk-lex-digit? ci))))
 
 ; --- Keywords ----------------------------------------------------------------
 
@@ -55,7 +59,7 @@
 ; Each answers (token . next-index); the driver conses and continues.
 
 ; 10^k as an exact integer, for the mantissa/exponent assembly.
-(def %awk-pow10
+(def awk-pow10
   (fn (self k) (if (<= k 0) 1 (* 10 (self (- k 1))))))
 
 ; Number: digits [. digits] [(e|E) [+|-] digits].  Assembled EXACTLY:
@@ -70,14 +74,14 @@
   (fn (self src end j acc)
     (if (>= j end) (pair acc j)
       (let ((b (byte-at src j)))
-        (if (%awk-lex-digit? b)
+        (if (awk-lex-digit? b)
           (self src end (+ j 1) (+ (* acc 10) (- b 48)))
           (pair acc j))))))
 (def %awk-lexn-frac
   (fn (self src end j acc k)
     (if (>= j end) (pair (pair acc k) j)
       (let ((b (byte-at src j)))
-        (if (%awk-lex-digit? b)
+        (if (awk-lex-digit? b)
           (self src end (+ j 1) (+ (* acc 10) (- b 48)) (+ k 1))
           (pair (pair acc k) j))))))
 ; exponent tail: nil, or (value . next) -- only when digits follow
@@ -101,8 +105,8 @@
           ())))))
 (def %awk-b-digit-at2?
   (fn (_ s end j)
-    (if (>= j end) #f (%awk-lex-digit? (byte-at s j)))))
-(def %awk-lex-num
+    (if (>= j end) #f (awk-lex-digit? (byte-at s j)))))
+(def awk-lex-num
   (fn (_ src i end)
     (let ((ir (%awk-lexn-int src end i 0)))
       (let ((ival (first ir)))
@@ -110,7 +114,7 @@
                     (%awk-lexn-frac src end (+ (rest ir) 1) 0 0)
                     (pair (pair 0 0) (rest ir)))))
           (let ((mant (+ ival (/ (first (first fr))
-                                 (%awk-pow10 (rest (first fr)))))))
+                                 (awk-pow10 (rest (first fr)))))))
             (let ((er (%awk-lexn-exp src end (rest fr))))
               (if (null? er)
                 (pair (list (lit num) mant) (rest fr))
@@ -118,8 +122,8 @@
                   (pair
                     (list (lit num)
                       (if (< e 0)
-                        (/ mant (%awk-pow10 (- 0 e)))
-                        (* mant (%awk-pow10 e))))
+                        (/ mant (awk-pow10 (- 0 e)))
+                        (* mant (awk-pow10 e))))
                     (rest er)))))))))))
 
 ; String constant: escapes processed here, so the parser and evaluator only
@@ -181,7 +185,7 @@
       (fn (self j acc)
         (if (>= j end) (pair (list->string (reverse acc)) j)
           (let ((ci (char->integer (string-ref src j))))
-            (if (%awk-lex-name-char? ci)
+            (if (awk-lex-name-char? ci)
               (self (+ j 1) (pair (string-ref src j) acc))
               (pair (list->string (reverse acc)) j))))))
     (def r (go i ()))
@@ -189,7 +193,7 @@
     (def j (rest r))
     (pair
       (match
-        ((%awk-kw? s) (list (lit kw) (convert s %awk-symbol-type)))
+        ((%awk-kw? s) (list (lit kw) (convert s awk-symbol-type)))
         ((if (< j end) (= (string-ref src j) #\() #f)
           (list (lit funcname) s))
         (#t (list (lit name) s)))
@@ -273,18 +277,18 @@
                   (let ((r (%awk-lex-ere src (+ i 1) end)))
                     (self (rest r) #t (pair (first r) acc)))))
               ; number: digit, or . with a digit after it
-              ((%awk-lex-digit? ci)
-                (let ((r (%awk-lex-num src i end)))
+              ((awk-lex-digit? ci)
+                (let ((r (awk-lex-num src i end)))
                   (self (rest r) #t (pair (first r) acc))))
               ((if (= c #\.)
                  (if (< (+ i 1) end)
-                   (%awk-lex-digit? (char->integer (string-ref src (+ i 1))))
+                   (awk-lex-digit? (char->integer (string-ref src (+ i 1))))
                    #f)
                  #f)
-                (let ((r (%awk-lex-num src i end)))
+                (let ((r (awk-lex-num src i end)))
                   (self (rest r) #t (pair (first r) acc))))
               ; name or keyword
-              ((%awk-lex-name-start? ci)
+              ((awk-lex-name-start? ci)
                 (let ((r (%awk-lex-name src i end)))
                   (self (rest r) (%awk-lex-div-after? (first r))
                     (pair (first r) acc))))
@@ -294,3 +298,7 @@
                   (self (rest r) (%awk-lex-div-after? (first r))
                     (pair (first r) acc)))))))))
     (go 0 #f ())))
+
+(provide awk/lex
+  awk-lex-digit? awk-lex-name-char? awk-lex-name-start? awk-lex-num
+  awk-pow10 awk-tokenize)

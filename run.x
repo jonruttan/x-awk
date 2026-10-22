@@ -16,12 +16,14 @@
 ; declares, arms this bundle's root with import-path!, cats this file, and
 ; appends the launcher when no -f was given, so `import` below resolves against
 ; the bundle wherever it sits.
-(import awk/base)
 
+(import awk/base awk-version)
+(import awk/cli awk-argv awk-main)
+(import awk/printer awk-repl-print)
 (set! %lang-name "AWK")
 (set! %lang-version awk-version)
 (set! %repl-prompt "awk> ")
-(set! %repl-print %awk-repl-print)
+(set! %repl-print awk-repl-print)
 
 ; THE CLI: operands after the lang selection mean "be awk" --
 ;

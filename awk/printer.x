@@ -13,8 +13,7 @@
 ; It still needs its own `write`: x's is round-trippable, so a token list would
 ; render as (('num "1")) where the specs assert ((num "1")).
 
-(provide awk/printer %awk-repl-print %awk-write)
-
+(module awk/printer)
 (def %awk-write ())
 (def %x-write write)
 (def %awk-write-items
@@ -32,7 +31,10 @@
       (if (symbol? v) (display v) (%x-write v)))))
 (def write %awk-write)
 
-(def %awk-repl-print
+(def awk-repl-print
   (fn (_ result)
     (unless (null? result) (%awk-write result))
     (newline)))
+
+(provide awk/printer
+  awk-repl-print (global write))

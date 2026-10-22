@@ -15,6 +15,7 @@
 ; dynamic regexes built from strings all ride (Regex compile) and the
 ; Regex exec methods.  This import is also what fixes the dialect floor.
 
+(module awk/prims)
 (import x/type/regex)
 ; The math set rides the platform's libm-backed floats, and rand rides its
 ; xorshift PRNG.  Floats never enter awk's value model: eval.x converts at
@@ -26,23 +27,6 @@
 (import x/sys/file)
 (import x/sys/proc)
 (import x/sys/opts)
-
-(provide awk/prims
-  char->integer integer->char
-  string-length string-ref substring string-append string-concat
-  string=? string? make-string list->string convert
-  length reverse append map filter nth set-first!
-  byte-at byte-len
-  regex-compile regex-search regex-split regex-replace-all regex-find-at
-  float-from float->string float-sin float-cos float-exp float-log
-  float-sqrt float-atan2 float-pow make-rng rng-int
-  file-open-read file-open-write file-open-append file-close file-write
-  file-read-all file-read-fd file-exists? file-unlink
-  proc-run proc-capture sys-exit sys-dup2 sys-close
-  sys-pipe sys-fork sys-exec sys-wait
-  sys-sigpipe-ignore! sys-sigpipe-default!
-  heap-collect heap-count
-  Opts)
 
 ; The direct prims, not the convert dispatcher, for the two casts the lexer
 ; makes per character: the dispatching version walks type alists and allocates.
@@ -67,9 +51,9 @@
 (def make-string (fn (_ n c) (Str8 make n c)))
 
 ; The type handles convert is asked for, fetched by name through the
-; platform's public door.  awk/lex.x reads %awk-symbol-type.
+; platform's public door.  awk/lex.x reads awk-symbol-type.
 (def %awk-string-type (Type named STRING))
-(def %awk-symbol-type (Type named SYMBOL))
+(def awk-symbol-type (Type named SYMBOL))
 
 (def %cvt (prim-ref (lit convert) (lit to)))
 (def list->string (fn (_ l) (if (null? l) "" (%cvt l %awk-string-type))))
@@ -198,3 +182,17 @@
 ; answers the objects on it; the memory spec reads it.
 (def heap-collect (prim-ref (lit heap) (lit collect)))
 (def heap-count (prim-ref (lit heap) (lit count)))
+
+(provide awk/prims
+  append awk-symbol-type byte-at byte-len char->integer convert
+  file-close file-exists? file-open-append file-open-read
+  file-open-write file-read-all file-read-fd file-unlink file-write
+  filter float->string float-atan2 float-cos float-exp float-from
+  float-log float-pow float-sin float-sqrt heap-collect heap-count
+  integer->char length lexer-make lexer-read lexer-run lexer-skip
+  lexer-table list->string make-rng make-string map nth proc-capture
+  proc-run regex-compile regex-find-at regex-replace-all regex-search
+  regex-split reverse rng-int set-first! string-append string-concat
+  string-length string-ref string=? string? substring sys-close
+  sys-dup2 sys-exec sys-exit sys-fork sys-pipe sys-sigpipe-default!
+  sys-sigpipe-ignore! sys-wait)

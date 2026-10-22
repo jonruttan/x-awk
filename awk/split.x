@@ -22,6 +22,10 @@
 ; itself: it closes a run, and alone at the end it is no token.
 
 ; (BYTE . LEXER) for every separator byte seen; the blank lexer apart
+(module awk/split)
+(import awk/prims
+  append byte-len integer->char lexer-make lexer-read lexer-run
+  lexer-skip lexer-table list->string reverse string-append)
 (def %awk-sep-lexers ())
 (def %awk-blank-lexer ())
 
@@ -90,14 +94,14 @@
 ; --- fields ------------------------------------------------------------------
 
 ; FS " ": runs of non-blanks, leading and trailing blanks dropped
-(def %awk-split-blanks
+(def awk-split-blanks
   (fn (_ s)
     (if (= (byte-len s) 0) ()
       (%awk-run-texts (lexer-read (%awk-blank-lexer!) s) ()))))
 
 ; a one-byte separator: a separator at the end opens a trailing empty field,
 ; as "a," has two fields
-(def %awk-split-char
+(def awk-split-char
   (fn (_ s b)
     (if (= (byte-len s) 0) ()
       (let ((cut (%awk-pieces (lexer-read (%awk-sep-lexer b) s))))
@@ -120,7 +124,7 @@
 
 ; the records of TEXT cut at B: (QUEUE . CARRY), CARRY the open last piece
 ; or "" when a separator closed the text
-(def %awk-cut-records
+(def awk-cut-records
   (fn (_ text b)
     (let ((cut (%awk-pieces (lexer-read (%awk-sep-lexer b) text))))
       (if (rest cut)
@@ -135,5 +139,8 @@
     (if (null? recs) text
       (self (rest recs) sep
         (string-append (first recs) (string-append sep text))))))
-(def %awk-requeue-text
+(def awk-requeue-text
   (fn (_ recs sep text) (%awk-requeue-go (reverse recs) sep text)))
+
+(provide awk/split
+  awk-cut-records awk-requeue-text awk-split-blanks awk-split-char)
