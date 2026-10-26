@@ -18,7 +18,7 @@
 ; the bundle wherever it sits.
 
 (import awk/base awk-version)
-(import awk/cli awk-argv awk-main)
+(import awk/cli awk-main)
 (import awk/printer awk-repl-print)
 (set! %lang-name "AWK")
 (set! %lang-version awk-version)
@@ -33,5 +33,5 @@
 ; so the launcher x.sh appends never starts a REPL underneath a batch
 ; run.  No operands means the x REPL with the awk core loaded --
 ; awk-run, awk-tokenize and friends at a prompt.
-(unless (null? (awk-argv args))
-  (awk-main args))
+(let ((ops (rest (Sys args (lit program)))))
+  (unless (null? ops) (awk-main ops)))
