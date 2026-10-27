@@ -20,7 +20,7 @@
 ; boolean. So: string-ref down the source, the lib/x/type/regex.x pattern.
 
 (module awk/base)
-(import awk/cli awk-argv awk-main awk-parse-cli)
+(import awk/cli awk-main awk-parse-cli)
 (import awk/eval awk-run)
 (import awk/lex awk-tokenize)
 (import awk/parse awk-parse)

@@ -61,7 +61,7 @@ cat > "$OUT" <<EOT
 (include "$X_BASE")
 (import-path! "$BUNDLE")
 (import awk/base awk-version)
-(import awk/cli awk-argv awk-parse-cli)
+(import awk/cli awk-parse-cli)
 (import awk/parse awk-parse)
 (import awk/eval awk-run awk-run-cli)
 (import awk/lex awk-tokenize)

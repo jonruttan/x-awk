@@ -84,7 +84,7 @@ expectations.
     awk/split.x       records and fields, cut by the platform's lexer
     awk/eval.x        the AST's meaning: values, records, the run loop
     awk/fmt.x         the printf engine; OFMT/CONVFMT route through it
-    awk/cli.x         argv to a plan (pure), and awk-main (the exit)
+    awk/cli.x         operands to a plan (pure), and awk-main (the exit)
     awk/printer.x     the lang's own write
     tests/            markdown specs + the platform's runner, vendored nowhere
 

@@ -13,32 +13,16 @@
 ; Without `--` the same options work placed after the program text, since x.sh
 ; stops at the first non-option operand.
 ;
-; Parsing is split pure/effectful on the spec seam: awk-argv and awk-parse-cli
-; are pure functions the suite exercises; awk-main is the few effectful lines
-; that read progfiles, run, and exit.
+; Parsing is split pure/effectful on the spec seam: awk-parse-cli is the pure
+; function the suite exercises; awk-main is the few effectful lines that read
+; progfiles, run, and exit.  The operands are (Sys args 'program) past the
+; engine's path, which run.x hands awk-main.
 
-; The engine flags x.sh plants ahead of the operands, plus argv0.
 (module awk/cli)
 (import awk/eval awk-run-cli awk-str-index)
 (import awk/prims
-  file-read-all file-write filter string-append string-concat
+  file-read-all file-write string-append string-concat
   string-length string-ref string=? substring sys-exit)
-(def %awk-cli-engine-flag?
-  (fn (_ s)
-    (if (string=? s "--quiet") #t
-      (if (string=? s "--batch") #t
-        (if (string=? s "--no-color") #t (string=? s "--verbose"))))))
-
-; The raw engine args to awk's own operands: drop argv0, drop the
-; engine's flags, drop one leading --.
-(def awk-argv
-  (fn (_ raw)
-    (def ops
-      (filter (fn (_ a) (not (%awk-cli-engine-flag? a)))
-        (if (pair? raw) (rest raw) ())))
-    (if (if (pair? ops) (string=? (first ops) "--") #f)
-      (rest ops)
-      ops)))
 
 ; The options, declared once: what the parse accepts, what --help prints and
 ; what a refusal prints.  busybox's awk help text, less the -E spelling and the
@@ -123,8 +107,7 @@
 ; value when the program called it, else 0.  --help first prints the help
 ; text, and 0; a line that does not run is refused, and 1.
 (def awk-main
-  (fn (_ raw-args)
-    (def argv (awk-argv raw-args))
+  (fn (_ argv)
     (def plan (if (Opts help? %awk-options argv) () (awk-parse-cli argv)))
     (def progfiles (%awk-cli-get (lit progfiles) plan))
     (def prog
@@ -150,4 +133,4 @@
               (%awk-cli-get (lit argv) plan)))))))
 
 (provide awk/cli
-  awk-argv awk-main awk-parse-cli)
+  awk-main awk-parse-cli)

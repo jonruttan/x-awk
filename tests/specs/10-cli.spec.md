@@ -8,13 +8,13 @@ file pins the pieces a spec can hold.
 
 ## the argv parser
 
-### engine flags and the leading -- strip away
+### -- ends the options
 
 ```awk
-(write (awk-argv (list "x-bin" "--quiet" "--batch" "--" "-F:" "p" "f1")))
+(write (awk-parse-cli (list "-F:" "--" "-v" "f1")))
 ```
 ---
-    ("-F:" "p" "f1")
+    ((fs . ":") (assigns) (progfiles) (prog . "-v") (argv "f1"))
 
 ### options split or joined, program, operands
 
