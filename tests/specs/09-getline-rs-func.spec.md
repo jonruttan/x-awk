@@ -164,7 +164,7 @@ c 1 d
 (awk-run "BEGIN{print nosuch(1)}" "")
 ```
 ---
-    Error: #<err:awk awk: calling undefined function nosuch>
+    Error: awk: awk: calling undefined function nosuch
 
 ### getline reads into an array element
 
