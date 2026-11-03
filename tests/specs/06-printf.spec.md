@@ -158,7 +158,7 @@ expectations from a real awk run, except where a case says otherwise.
 (awk-run "BEGIN{printf \"%d %d\\n\", 7}" "")
 ```
 ---
-    Error: #<err:awk awk: printf: not enough arguments>
+    Error: awk: awk: printf: not enough arguments
 
 ## the parenthesized argument list
 
