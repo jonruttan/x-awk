@@ -32,8 +32,9 @@
 ; makes per character: the dispatching version walks type alists and allocates.
 ; lib/x/reader/analyser.x holds the same references. Conversions key on the
 ; source type, so the pair is (char ->int) and (int ->char).
-(def char->integer (prim-ref (lit char) (lit ->int)))
-(def integer->char (prim-ref (lit int) (lit ->char)))
+(import x/core/doors char->int int->char str-byte-ref str-byte-len str-make heap-collect)
+(def char->integer char->int)
+(def integer->char int->char)
 
 (def string-length (fn (_ s) (Str8 length s)))
 (def string-ref (fn (_ s i) (Str8 ref i s)))
@@ -41,9 +42,8 @@
 ; ISA flags `hot` -- one C call, no char object, no class dispatch.  The
 ; per-record path reads BYTES through these; awk in the C locale is a
 ; byte-oriented tool, so bytes are the honest unit anyway.
-(def byte-at (prim-ref (lit str) (lit byte-ref)))
-(def byte-len (prim-ref (lit str) (lit byte-len)))
-(def %str-make-raw (prim-ref (lit str) (lit make)))
+(def byte-at str-byte-ref)
+(def byte-len str-byte-len)
 ; Scheme's substring is [start, end); Str8 sub is (start, LENGTH).
 (def substring (fn (_ s a b) (Str8 sub a (- b a) s)))
 (def string=? (fn (_ a b) (str=? a b)))
@@ -126,13 +126,13 @@
 (def file-read-all (fn (_ path) (File read-all path)))
 (def file-read-fd
   (fn (_ fd n)
-    ; %str-make-raw is the engine's ALLOCATION door (make-str): n writable
+    ; str-make is the engine's ALLOCATION door (make-str): n writable
     ; bytes, space-filled, NUL-terminated.  Str8 make with a NUL fill is
     ; NOT that door: strings are C strings, so a NUL-filled string is ""
     ; -- a 1-byte buffer the raw read then writes n bytes into (the
     ; 2026-09-01 stdin heap corruption; File read is a raw syscall, so
     ; nothing catches the overrun).
-    (def buf (%str-make-raw n))
+    (def buf (str-make n))
     (def r (File read fd buf n))
     (if (if (number? r) (> r 0) #f) (substring buf 0 r) "")))
 (def file-exists? (fn (_ path) (File exists? path)))
@@ -180,7 +180,6 @@
 ; loop over input keeps every object it ever made unless it sweeps.  The
 ; record loop does (awk/eval.x, %awk-sweep!).  count walks the heap and
 ; answers the objects on it; the memory spec reads it.
-(def heap-collect (prim-ref (lit heap) (lit collect)))
 (def heap-count (prim-ref (lit heap) (lit count)))
 
 (provide awk/prims
