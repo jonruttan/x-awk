@@ -15,7 +15,7 @@ not round here; see [Differences](#differences).
 
 ## Status
 
-Pre-release: no release has been cut. Paired with x-lang v0.53.0
+Pre-release: no release has been cut. Paired with x-lang v0.54.0
 (`lang.xon` is the checkable row). The POSIX language and command line
 are in, with one gap: `exit` from inside a function.
 
