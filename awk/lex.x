@@ -31,6 +31,7 @@
 (import awk/prims
   awk-symbol-type byte-at char->integer convert integer->char
   list->string reverse string-length string-ref string=? substring)
+(import awk/words awk-keywords awk-ops2)
 (def awk-lex-digit? (fn (_ ci) (if (>= ci 48) (<= ci 57) #f)))
 (def awk-lex-name-start?
   (fn (_ ci)
@@ -42,18 +43,13 @@
 
 ; --- Keywords ----------------------------------------------------------------
 
-(def %awk-keywords
-  (list "BEGIN" "END" "function" "if" "else" "while" "for" "do"
-        "break" "continue" "next" "exit" "return" "delete" "in"
-        "print" "printf" "getline"))
-
 (def %awk-kw?
   (fn (_ s)
     (def go
       (fn (self ks)
         (if (null? ks) #f
           (if (string=? s (first ks)) #t (self (rest ks))))))
-    (go %awk-keywords)))
+    (go awk-keywords)))
 
 ; --- Sub-scanners ------------------------------------------------------------
 ; Each answers (token . next-index); the driver conses and continues.
@@ -200,9 +196,6 @@
       j)))
 
 ; Operator: longest match first.  The two-char set, then the singles.
-(def %awk-lex2
-  (list "==" "!=" "<=" ">=" "&&" "||" "++" "--"
-        "+=" "-=" "*=" "/=" "%=" "^=" "!~" ">>"))
 
 (def %awk-lex-op
   (fn (_ src i end)
@@ -214,7 +207,7 @@
       (fn (self ks)
         (if (null? ks) ()
           (if (string=? two (first ks)) (first ks) (self (rest ks))))))
-    (def m2 (if (null? two) () (hit2 %awk-lex2)))
+    (def m2 (if (null? two) () (hit2 awk-ops2)))
     (if (not (null? m2))
       (pair (list (lit op) m2) (+ i 2))
       (pair (list (lit op) (substring src i (+ i 1))) (+ i 1)))))

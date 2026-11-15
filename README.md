@@ -103,8 +103,10 @@ was taken from a real awk run on the same program and input.
     run.x             the entry
     awk/base.x        the language, assembled
     awk/prims.x       the platform layer
+    awk/words.x       keywords, builtins, variables and operators
     awk/lex.x         program text to tokens
     awk/parse.x       tokens to a tree
+    awk/syntax.x      the awk highlighting grammar x/tool/syntax colours with
     awk/split.x       records and fields, cut by the platform's lexer
     awk/eval.x        values, records, the run loop
     awk/fmt.x         printf; OFMT and CONVFMT go through it
