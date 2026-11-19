@@ -43,6 +43,14 @@ test: ## Run the spec suite (every failure is loud)
 check: ## Run the suite against tests/contract/known-failures.txt -- what CI gates on
 	X="$(X)" sh tests/spec-gate.sh
 
+# The rows run `x -l awk`, so x has to find THIS tree: X_LANG_DIR is the
+# directory holding it.  An installed x is needed; a checkout's wrapper
+# only runs from its own root.
+.PHONY: card
+card: ## Hold docs/card.md to the card format and run its rows
+	X_LANG_DIR="$${X_LANG_DIR:-$(CURDIR)/..}" BUNDLE=. X="$(X)" \
+		sh "$$("$(X)" --share-dir)/tools/lang-kit/card.sh"
+
 .PHONY: help
 help: ## Show targets
 	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z0-9_-]+:.*?## / {printf "  \033[32m%-12s\033[0m %s\n", $$1, $$2}' $(MAKEFILE_LIST)
