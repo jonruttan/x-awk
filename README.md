@@ -92,10 +92,10 @@ session with awk loaded.
 
     make test           # the suite
     make check          # the suite against tests/contract/known-failures.txt
-    make card           # docs/card.md: its format, and every row run
+    make card           # docs/card.md: its format, and every program run
 
-[docs/card.md](docs/card.md) is one page for recall: what to type and
-what it prints.
+[docs/card.md](docs/card.md) is the reference page: the language's names in
+tables, and awk programs that are run, each beside what it prints.
 
 `(awk-run PROGRAM-TEXT INPUT-TEXT)` is the core, and the suite calls it
 directly. Every end-to-end expectation in `tests/specs/03-run.spec.md`
