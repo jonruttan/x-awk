@@ -220,7 +220,7 @@
               (= conv #\G))
             width flag-minus flag-zero)))
       (#t (Err raise (lit awk)
-            "awk: printf: unknown conversion character" conv)))))
+            "printf: unknown conversion character" conv)))))
 
 (set! awk-sprintf
   (fn (_ fmt vals)
@@ -228,7 +228,7 @@
     (def take
       (fn (_ vs)
         (if (null? vs)
-          (Err raise (lit awk) "awk: printf: not enough arguments" fmt)
+          (Err raise (lit awk) "printf: not enough arguments" fmt)
           (pair (first vs) (rest vs)))))
     ; parse [flags][width][.prec]CONV from position i; %% consumes no value
     (def conv
@@ -283,7 +283,7 @@
         (def j2 (first (rest pr)))
         (def vs2 (first (rest (rest pr))))
         (if (>= j2 end)
-          (Err raise (lit awk) "awk: printf: format ends inside a % spec" fmt)
+          (Err raise (lit awk) "printf: format ends inside a % spec" fmt)
           (let ((c (string-ref fmt j2)))
             (if (= c #\%)
               (list (%awk-fmt-one c () minus2 plus space zero alt w p)

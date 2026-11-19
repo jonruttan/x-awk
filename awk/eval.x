@@ -183,7 +183,7 @@
           (%awk-var-set! name a)
           a))
       (#t (Err raise (lit awk)
-            (string-append "awk: " name " is a scalar, used as an array") ())))))
+            (string-append "" name " is a scalar, used as an array") ())))))
 
 ; --- Coercions ---------------------------------------------------------------
 
@@ -261,7 +261,7 @@
       ((number? v) v)
       ((%awk-strnum? v) (first (rest (rest v))))
       ((%awk-array? v)
-        (Err raise (lit awk) "awk: array used in scalar context" ()))
+        (Err raise (lit awk) "array used in scalar context" ()))
       (#t (first (%awk-str-prefix-num v))))))
 
 ; --- Number formatting: %.6g from exact values -------------------------------
@@ -306,7 +306,7 @@
       ((number? v) (%awk-num->str v))
       ((%awk-strnum? v) (first (rest v)))
       ((%awk-array? v)
-        (Err raise (lit awk) "awk: array used in scalar context" ()))
+        (Err raise (lit awk) "array used in scalar context" ()))
       (#t v))))
 
 ; --- Truth and comparison ----------------------------------------------------
@@ -403,7 +403,7 @@
     (def s (awk-to-str (%awk-eval (first arg-nodes))))
     (def arr-node (first (rest arg-nodes)))
     (if (not (eq? (first arr-node) (lit var)))
-      (Err raise (lit awk) "awk: split needs an array name" ())
+      (Err raise (lit awk) "split needs an array name" ())
       (let ((arr (%awk-var-array! (first (rest arr-node)))))
         (%awk-arr-clear! arr)
         (def fs-node (if (null? (rest (rest arg-nodes))) ()
@@ -473,7 +473,7 @@
         (list (lit field) (list (lit num) 0))
         (first (rest (rest nodes)))))
     (if (not (awk-p-lval? target))
-      (Err raise (lit awk) "awk: sub/gsub target must be assignable" ())
+      (Err raise (lit awk) "sub/gsub target must be assignable" ())
       (let ((s (awk-to-str (%awk-lval-get target))))
         (def len (string-length s))
         ; An empty match replaces, keeps the next character, and steps
@@ -519,7 +519,7 @@
     (def i (awk-trunc idx))
     (match
       ((= i 0) (%awk-input-val %awk-f0))
-      ((< i 0) (Err raise (lit awk) "awk: negative field index" i))
+      ((< i 0) (Err raise (lit awk) "negative field index" i))
       ((> i (length %awk-fields)) ())
       (#t (nth (- i 1) %awk-fields)))))
 
@@ -571,7 +571,7 @@
   (fn (_ idx v)
     (def i (awk-trunc idx))
     (match
-      ((< i 0) (Err raise (lit awk) "awk: negative field index" i))
+      ((< i 0) (Err raise (lit awk) "negative field index" i))
       ((= i 0) (%awk-set-record! (awk-to-str v)))
       (#t
         (do (set! %awk-fields (%awk-fields-put %awk-fields i v))
@@ -580,7 +580,7 @@
 (def %awk-set-nf!
   (fn (_ n)
     (if (< n 0)
-      (Err raise (lit awk) "awk: NF set negative" n)
+      (Err raise (lit awk) "NF set negative" n)
       (do (set! %awk-fields (%awk-fields-resize %awk-fields n))
           (%awk-rebuild-record!)))))
 
@@ -722,7 +722,7 @@
           (def to (if (> upto len) len (if (< upto 0) 0 upto)))
           (if (>= from to) "" (substring s from to))))
       (#t (Err raise (lit awk)
-            (string-append "awk: unknown function " name) ())))))
+            (string-append "unknown function " name) ())))))
 
 ; --- Expressions -------------------------------------------------------------
 
@@ -885,13 +885,13 @@
     (def f (find %awk-funcs))
     (if (null? f)
       (Err raise (lit awk)
-        (string-append "awk: calling undefined function " nm) ())
+        (string-append "calling undefined function " nm) ())
       (let ((params (first (rest f))))
         (def body (rest (rest f)))
         (def args (map (fn (_ a) (%awk-eval a)) arg-nodes))
         (if (> (length args) (length params))
           (Err raise (lit awk)
-            (string-append "awk: too many arguments to " nm) ())
+            (string-append "too many arguments to " nm) ())
           (let ((saved (map (fn (_ p) (pair p (%awk-var-get p))) params)))
             (def bind
               (fn (self ps as)
@@ -905,7 +905,7 @@
               ((null? c) ())
               ((eq? (first c) (lit return)) (first (rest c)))
               (#t (Err raise (lit awk)
-                    "awk: next/break/continue/exit cannot escape a function"
+                    "next/break/continue/exit cannot escape a function"
                     ())))))))))
 
 ; HOT (once per AST node): an if-chain, not match -- the match operative
@@ -936,7 +936,7 @@
     (if (eq? label (lit assign))
       (let ((v (%awk-eval (first (rest (rest node))))))
         (if (%awk-array? v)
-          (Err raise (lit awk) "awk: an array cannot be assigned" ())
+          (Err raise (lit awk) "an array cannot be assigned" ())
           (do (%awk-lval-set! (first (rest node)) v) v)))
     (if (eq? label (lit bin))
       (let ((op (first (rest node))))
@@ -951,7 +951,7 @@
                       ; awk's % is fmod: exact, sign follows the dividend
                       (- a (* b (awk-trunc (/ a b))))
                       (Err raise (lit awk)
-                        "awk: unknown operator" op)))))))))
+                        "unknown operator" op)))))))))
     ; a[k]: the shared l-value path -- which CREATES the element,
     ; POSIX's rule for mentioning a subscript.
     (if (eq? label (lit index)) (%awk-lval-get node)
@@ -1048,7 +1048,7 @@
                     (%awk-lval-set! (first (rest node))
                       (%awk-input-val rec)))
                   1)))))
-      (Err raise (lit awk) "awk: unknown expression" label)
+      (Err raise (lit awk) "unknown expression" label)
       )))))))))))))))))))))))))))))
 
 ; --- Statements --------------------------------------------------------------
@@ -1114,7 +1114,7 @@
                   (file-open-write path))))
         (if (< fd 0)
           (Err raise (lit awk)
-            (string-append "awk: can't open for output: " path) ())
+            (string-append "can't open for output: " path) ())
           (do (set! %awk-outs (pair (pair path fd) %awk-outs))
               fd))))))
 
@@ -1304,7 +1304,7 @@
                               (#t c)))))))
                 (walk (%awk-arr-keys av))))
             (#t (Err raise (lit awk)
-                  "awk: for-in over a scalar" ())))))
+                  "for-in over a scalar" ())))))
       ((eq? label (lit delete))
         (do (let ((av (%awk-var-get (first (rest stmt)))))
               (def subs (first (rest (rest stmt))))
@@ -1328,7 +1328,7 @@
         (list (lit return)
           (if (null? (first (rest stmt))) ()
             (%awk-eval (first (rest stmt))))))
-      (#t (Err raise (lit awk) "awk: unknown statement" label)))))
+      (#t (Err raise (lit awk) "unknown statement" label)))))
 
 ; --- The record loop ---------------------------------------------------------
 
@@ -1552,7 +1552,7 @@
                     (if (file-exists? op)
                       (%awk-reader-new (file-open-read op) #t "")
                       (Err raise (lit awk)
-                        (string-append "awk: can't open file " op) ())))))
+                        (string-append "can't open file " op) ())))))
             (set! %awk-any-file? #t)
             (%awk-var-set! "FILENAME" op)
             (%awk-var-set! "FNR" 0)

@@ -73,7 +73,7 @@
 (def %awk-p-err
   (fn (_ msg toks)
     (Err raise (lit awk)
-      (string-append "awk parse: " msg
+      (string-append "parse: " msg
         (if (null? toks) " at end of program" " near a token"))
       toks)))
 
