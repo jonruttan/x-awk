@@ -43,13 +43,14 @@ test: ## Run the spec suite (every failure is loud)
 check: ## Run the suite against tests/contract/known-failures.txt -- what CI gates on
 	X="$(X)" sh tests/spec-gate.sh
 
-# The rows run `x -l awk`, so x has to find THIS tree: X_LANG_DIR is the
-# directory holding it.  An installed x is needed; a checkout's wrapper
-# only runs from its own root.
+# The card's programs run through tests/card-run.sh, which runs `x -l awk`,
+# so x has to find THIS tree: X_LANG_DIR is the directory holding it.  An
+# installed x is needed; a checkout's wrapper only runs from its own root.
+# CARD_SH is the check: the installed x-lang's, or a newer one named here.
 .PHONY: card
-card: ## Hold docs/card.md to the card format and run its rows
+card: ## Hold docs/card.md to the card format and run its programs
 	X_LANG_DIR="$${X_LANG_DIR:-$(CURDIR)/..}" BUNDLE=. X="$(X)" \
-		sh "$$("$(X)" --share-dir)/tools/lang-kit/card.sh"
+		sh "$${CARD_SH:-$$("$(X)" --share-dir)/tools/lang-kit/card.sh}"
 
 .PHONY: help
 help: ## Show targets
