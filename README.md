@@ -15,7 +15,7 @@ not round here; see [Differences](#differences).
 
 ## Status
 
-Pre-release: no release has been cut. Paired with x-lang v0.56.0
+Pre-release: no release has been cut. Paired with x-lang v0.57.0
 (`lang.xon` is the checkable row). The POSIX language and command line
 are in, with one gap: `exit` from inside a function.
 
@@ -92,6 +92,10 @@ session with awk loaded.
 
     make test           # the suite
     make check          # the suite against tests/contract/known-failures.txt
+    make card           # docs/card.md: its format, and every row run
+
+[docs/card.md](docs/card.md) is one page for recall: what to type and
+what it prints.
 
 `(awk-run PROGRAM-TEXT INPUT-TEXT)` is the core, and the suite calls it
 directly. Every end-to-end expectation in `tests/specs/03-run.spec.md`
