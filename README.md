@@ -16,7 +16,7 @@ not round here; see [Differences](#differences).
 ## Status
 
 Pre-release: no release has been cut. Paired with x-lang v0.59.0
-(`lang.xon` is the checkable row). The POSIX language and command line
+(`bundle.xon` is the checkable row). The POSIX language and command line
 are in, with one gap: `exit` from inside a function.
 
 ## What it does
@@ -73,7 +73,7 @@ Options come before the program: they stop at the first operand.
 
 ## Install
 
-It needs x-lang at the release `lang.xon` declares.
+It needs x-lang at the release `bundle.xon` declares.
 
     make install        # into the x on PATH
 
@@ -103,20 +103,20 @@ was taken from a real awk run on the same program and input.
 
 ## Layout
 
-    lang.xon          what the bundle is: lang, dialect, pairing, entry
-    run.x             the entry
-    awk/base.x        the language, assembled
-    awk/prims.x       the platform layer
-    awk/words.x       keywords, builtins, variables and operators
-    awk/lex.x         program text to tokens
-    awk/parse.x       tokens to a tree
-    awk/syntax.x      the awk highlighting grammar x/tool/syntax colours with
-    awk/split.x       records and fields, cut by the platform's lexer
-    awk/eval.x        values, records, the run loop
-    awk/fmt.x         printf; OFMT and CONVFMT go through it
-    awk/cli.x         operands to a plan, and awk-main
-    awk/printer.x     the lang's own write
-    tests/            markdown specs, run by the platform's runner
+    bundle.xon            what the bundle is: name, dialect, release, entry
+    lib/awk/run.x         the entry
+    lib/awk/base.x        the language, assembled
+    lib/awk/prims.x       the platform layer
+    lib/awk/words.x       keywords, builtins, variables and operators
+    lib/awk/lex.x         program text to tokens
+    lib/awk/parse.x       tokens to a tree
+    lib/awk/syntax.x      the awk highlighting grammar x/tool/syntax colours with
+    lib/awk/split.x       records and fields, cut by the platform's lexer
+    lib/awk/eval.x        values, records, the run loop
+    lib/awk/fmt.x         printf; OFMT and CONVFMT go through it
+    lib/awk/cli.x         operands to a plan, and awk-main
+    lib/awk/printer.x     the lang's own write
+    tests/                markdown specs, run by the platform's runner
 
 ## Licence
 

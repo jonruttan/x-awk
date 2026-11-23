@@ -2,27 +2,27 @@
 
 ## awk/syntax -- the awk highlighting grammar
 
-The bundle's lang.xon declares a grammar, `awk`, that x/tool/syntax colours
+The bundle's bundle.xon declares a grammar, `awk`, that x/tool/syntax colours
 awk programs with. Its module, `awk/syntax`, imports x-lang libraries and
 awk/words only, and registers the grammar as it loads.
 
 The cases share one process, and a registered grammar stays registered, so
-the catalogue's case comes first: it finds the grammar through lang.xon,
+the catalogue's case comes first: it finds the grammar through bundle.xon,
 before anything has imported the module.
 
 ### the catalogue finds awk by suffix, by #! and by modeline
 
 ```awk
 (do (import x/sys/posix) (import x/sys/file) (import x/tool/syntax)
-    (def root (Str8 replace "/awk/syntax.x" "" (%module-resolve-file "awk/syntax.x")))
+    (def root (Str8 replace "/lib/awk/syntax.x" "" (%module-resolve-file "awk/syntax.x")))
     (def tmp (File temp "/tmp/x-awk-spec-langs-"))
     (File close (first tmp))
     (def d (rest tmp))
     (File unlink d)
     (File mkdir d)
     (File symlink root (Str8 append d "/awk"))
-    (def was (Sys getenv "X_LANG_DIR"))
-    (Sys setenv "X_LANG_DIR" d)
+    (def was (Sys getenv "X_BUNDLE_DIR"))
+    (Sys setenv "X_BUNDLE_DIR" d)
     (Syntax forget!)
     (def row (List find (fn (_ r) (eq? (first r) (lit awk))) (Syntax catalogue)))
     (def name (fn (_ path . text)
@@ -36,7 +36,7 @@ before anything has imported the module.
             (let ((g (Syntax named (lit awk)))) (list (g files) (g interpreters)))))
     (File unlink (Str8 append d "/awk"))
     (File rmdir d)
-    (Sys setenv "X_LANG_DIR" (if (null? was) "" was))
+    (Sys setenv "X_BUNDLE_DIR" (if (null? was) "" was))
     (Syntax forget!)
     (write seen))
 ```

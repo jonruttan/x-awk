@@ -50,7 +50,7 @@ fi
 
 # %install-root first (deferred imports resolve against it), the amalgam (never
 # a dialect entry -- those end by starting a REPL), then the bundle root armed
-# exactly as run.x arms it. Nothing under awk/ includes a platform module
+# exactly as x -l arms it. Nothing under lib/awk/ includes a platform module
 # (re-including one on a booted tower crashes; x-lang#515), and no collect of
 # our own -- x-base.x ends its boot with one and the compiled tower leaves no
 # garbage that needs a second.
@@ -59,7 +59,7 @@ cat > "$OUT" <<EOT
 ; commit: the two absolute paths below are facts of this machine.
 (def %install-root "$X_ROOT")
 (include "$X_BASE")
-(import-path! "$BUNDLE")
+(import-path! "$BUNDLE/lib")
 (import awk/base awk-version)
 (import awk/cli awk-parse-cli)
 (import awk/parse awk-parse)
