@@ -42,7 +42,7 @@ SPEC_PATH="${SPEC_PATH:-$BUNDLE/tests/specs}"
 
 # The suite boots from a state image of the harness when the platform can write
 # one. tools/dev/image-build.sh images a child that loaded the harness, keyed on
-# what it depends on (the harness, the platform's lib/, its engine, and awk/),
+# what it depends on (the harness, the platform's lib/, its engine, and lib/awk/),
 # so an edit to any of them rewrites the image and a current one is reused. Each
 # spec file then loads in about a second instead of booting x-base.x from
 # source.
@@ -58,7 +58,7 @@ if [ "${IMG:-1}" = 0 ]; then
 else
 	_builder="$X_ROOT/tools/dev/image-build.sh"
 	if [ -f "$_builder" ]; then
-		if X_BIN="$X_BIN" sh "$_builder" "$LANG_LIB" "$BUNDLE/tests/lib/.images" "$BUNDLE/awk"; then
+		if X_BIN="$X_BIN" sh "$_builder" "$LANG_LIB" "$BUNDLE/tests/lib/.images" "$BUNDLE/lib/awk"; then
 			X_IMG_DIR="$BUNDLE/tests/lib/.images"; export X_IMG_DIR
 		else
 			echo "x-awk: no state image (image-build exit $?) -- the suite boots from source" >&2
