@@ -102,6 +102,36 @@
 (def %awk-b-digit-at2?
   (fn (_ s end j)
     (if (>= j end) #f (awk-lex-digit? (byte-at s j)))))
+; The extent of the number awk-lex-num reads at I, without its value.  The
+; strnum test asks this first: a field that only STARTS like a number
+; (a hex digest, 07951e9448e8...) is a string, and its value would cost a
+; 10^9448 the field never needed.
+(def %awk-lexn-digits-end
+  (fn (self src end j)
+    (if (>= j end) j
+      (if (awk-lex-digit? (byte-at src j)) (self src end (+ j 1)) j))))
+(def %awk-lexn-exp-end
+  (fn (_ src end j)
+    (if (>= j end) j
+      (let ((b (byte-at src j)))
+        (if (if (= b 101) #t (= b 69))                  ; e E
+          (let ((k (+ j 1)))
+            (let ((k2 (if (if (< k end)
+                            (let ((sb (byte-at src k)))
+                              (if (= sb 43) #t (= sb 45)))  ; + -
+                            #f)
+                        (+ k 1) k)))
+              (if (%awk-b-digit-at2? src end k2)
+                (%awk-lexn-digits-end src end k2)
+                j)))
+          j)))))
+(def awk-lex-num-end
+  (fn (_ src i end)
+    (let ((j (%awk-lexn-digits-end src end i)))
+      (%awk-lexn-exp-end src end
+        (if (if (< j end) (= (byte-at src j) 46) #f)     ; .
+          (%awk-lexn-digits-end src end (+ j 1))
+          j)))))
 (def awk-lex-num
   (fn (_ src i end)
     (let ((ir (%awk-lexn-int src end i 0)))
@@ -294,4 +324,4 @@
 
 (provide awk/lex
   awk-lex-digit? awk-lex-name-char? awk-lex-name-start? awk-lex-num
-  awk-pow10 awk-tokenize)
+  awk-lex-num-end awk-pow10 awk-tokenize)
