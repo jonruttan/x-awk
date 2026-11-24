@@ -30,7 +30,8 @@
 
 (module awk/eval)
 (import awk/lex
-  awk-lex-digit? awk-lex-name-char? awk-lex-name-start? awk-lex-num)
+  awk-lex-digit? awk-lex-name-char? awk-lex-name-start? awk-lex-num
+  awk-lex-num-end)
 (import awk/parse awk-p-lval? awk-parse)
 (import awk/prims
   append byte-at byte-len char->integer file-close file-exists?
@@ -242,11 +243,13 @@
             (let ((i1 (%awk-b-sign s end i0)))
               (if (not (%awk-b-num-starts? s end i1))
                 ()
-                (let ((r (awk-lex-num s i1 end)))
-                  (if (= (%awk-b-ws s end (rest r)) end)
+                ; the extent first: only a field that IS one number pays
+                ; for its value
+                (if (< (%awk-b-ws s end (awk-lex-num-end s i1 end)) end)
+                  ()
+                  (let ((r (awk-lex-num s i1 end)))
                     (if neg (- 0 (first (rest (first r))))
-                      (first (rest (first r))))
-                    ()))))))))))
+                      (first (rest (first r))))))))))))))
 
 ; Wrap one piece of INPUT text as a value: strnum when it looks numeric.
 (def %awk-input-val

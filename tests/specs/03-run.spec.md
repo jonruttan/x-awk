@@ -88,6 +88,19 @@ d c
 ---
     9 10
 
+### a field that only starts like a number is a string, its exponent never raised
+
+```awk
+(awk-run "{print $1; print ($1 < $2)}" "07951e9448e842092bfd 6e6070046x\n1e2 1e3\n")
+```
+---
+```output
+07951e9448e842092bfd
+1
+1e2
+1
+```
+
 ### string constants compare as strings
 
 ```awk
