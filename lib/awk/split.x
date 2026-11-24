@@ -18,8 +18,7 @@
 ; The rules leave two things to the walk over the tokens: an EMPTY piece
 ; between two separators, which no run rule reads, and whether a separator
 ; closed the text's last piece -- a record reader has to know its last record
-; is partial.  The end text appended to every read is the separator byte
-; itself: it closes a run, and alone at the end it is no token.
+; is partial.
 
 ; (BYTE . LEXER) for every separator byte seen; the blank lexer apart
 (module awk/split)
@@ -51,8 +50,7 @@
         (let ((sep (list->string (list (integer->char b)))))
           (let ((l (lexer-make
                      (list (lexer-table (lit sep) (list sep))
-                           (lexer-run (lit run) (%awk-class-but b) (%awk-class-but b)))
-                     sep)))
+                           (lexer-run (lit run) (%awk-class-but b) (%awk-class-but b))))))
             (set! %awk-sep-lexers (pair (pair b l) %awk-sep-lexers))
             l))
         hit))))
@@ -63,8 +61,7 @@
       (set! %awk-blank-lexer
         (lexer-make
           (list (lexer-skip " \t\n")
-                (lexer-run (lit run) %awk-nonblank %awk-nonblank))
-          " "))
+                (lexer-run (lit run) %awk-nonblank %awk-nonblank))))
       ())
     %awk-blank-lexer))
 

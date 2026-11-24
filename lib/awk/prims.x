@@ -169,7 +169,7 @@
 (import x/reader/lexer)
 (import x/tool/asm-cache)
 (import x/tool/asm-compile)
-(def lexer-make (fn (_ rules end) (Lexer make rules end)))
+(def lexer-make (fn (_ rules) (Lexer make rules)))
 (def lexer-run (fn (_ tag opens continues) (Lexer run tag opens continues)))
 (def lexer-skip (fn (_ class) (Lexer skip class)))
 (def lexer-table (fn (_ tag strings) (Lexer table tag strings)))
