@@ -26,7 +26,6 @@
 (import awk/parse awk-parse)
 (import awk/printer awk-repl-print)
 (import awk/prims)
-(import awk/printer)
 
 (def awk-version "0.1.0")
 

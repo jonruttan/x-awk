@@ -10,31 +10,19 @@
 ; gone to stdout by the time a result comes back, so this printer is mostly
 ; quiet -- nil prints nothing.
 ;
-; It still needs its own `write`: x's is round-trippable, so a token list would
-; render as (('num "1")) where the specs assert ((num "1")).
+; Symbols write bare: x's writer quotes them so an echo pastes back, so a
+; token list would render as (('num "1")) where the specs assert ((num "1")).
+; Lang symbols-bare! sets that on the symbol type, for write and
+; write-to-str alike.
 
 (module awk/printer)
-(def %awk-write ())
-(def %x-write write)
-(def %awk-write-items
-  (fn (_ v)
-    (%awk-write (first v))
-    (if (null? (rest v))
-      ()
-      (if (pair? (rest v))
-        (%seq (display " ") (%awk-write-items (rest v)))
-        (%seq (display " . ") (%awk-write (rest v)))))))
-(set! %awk-write
-  (fn (_ v)
-    (if (pair? v)
-      (%seq (display "(") (%seq (%awk-write-items v) (display ")")))
-      (if (symbol? v) (display v) (%x-write v)))))
-(def write %awk-write)
+(import x/repl/lang)
+
+(Lang symbols-bare!)
 
 (def awk-repl-print
   (fn (_ result)
-    (unless (null? result) (%awk-write result))
+    (unless (null? result) (write result))
     (newline)))
 
-(provide awk/printer
-  awk-repl-print (global write))
+(provide awk/printer awk-repl-print)

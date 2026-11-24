@@ -115,7 +115,7 @@ was taken from a real awk run on the same program and input.
     lib/awk/eval.x        values, records, the run loop
     lib/awk/fmt.x         printf; OFMT and CONVFMT go through it
     lib/awk/cli.x         operands to a plan, and awk-main
-    lib/awk/printer.x     the lang's own write
+    lib/awk/printer.x     symbols written bare, and the REPL printer
     tests/                markdown specs, run by the platform's runner
 
 ## Licence
