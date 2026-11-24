@@ -16,7 +16,7 @@
 ; Parsing is split pure/effectful on the spec seam: awk-parse-cli is the pure
 ; function the suite exercises; awk-main is the few effectful lines that read
 ; progfiles, run, and exit.  The operands are (Sys args 'program) past the
-; engine's path, which run.x hands awk-main.
+; engine's path, which awk/run's main hands awk-main.
 
 (module awk/cli)
 (import awk/eval awk-run-cli awk-str-index)

@@ -39,6 +39,7 @@
 (module awk/parse)
 (import awk/lex awk-tokenize)
 (import awk/prims append regex-compile reverse string-append string=?)
+(import awk/words awk-builtins)
 (def %awk-p-label
   (fn (_ toks) (if (null? toks) (lit eof) (first (first toks)))))
 
@@ -72,7 +73,7 @@
 (def %awk-p-err
   (fn (_ msg toks)
     (Err raise (lit awk)
-      (string-append "awk parse: " msg
+      (string-append "parse: " msg
         (if (null? toks) " at end of program" " near a token"))
       toks)))
 
@@ -91,20 +92,15 @@
       (if (eq? (first ast) (lit field)) #t
         (eq? (first ast) (lit index))))))
 
-; The builtins the parser recognises as calls.  `length` alone (no parens)
-; is also legal awk and handled in primary.
-(def %awk-p-builtins
-  (list "length" "substr" "index" "int" "split" "sprintf" "sub" "gsub"
-        "match" "toupper" "tolower" "sin" "cos" "atan2" "exp" "log" "sqrt"
-        "rand" "srand" "close" "system"))
-
+; The builtins the parser recognises as calls, awk/words' awk-builtins.
+; `length` alone (no parens) is handled in primary.
 (def %awk-p-builtin?
   (fn (_ s)
     (def go
       (fn (self ks)
         (if (null? ks) #f
           (if (string=? s (first ks)) #t (self (rest ks))))))
-    (go %awk-p-builtins)))
+    (go awk-builtins)))
 
 ; Comma-separated argument list after an opening paren; ) consumed.
 (def %awk-p-args

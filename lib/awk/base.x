@@ -7,8 +7,8 @@
 ; @copyright 2026 Jon Ruttan
 ; @license MIT No Attribution (MIT-0)
 ;
-; No path literals and no dialect boot here: run.x owns both (the spec harness
-; stands in for run.x under the suite). Nothing under awk/ includes a platform
+; No path literals and no dialect boot here: awk/run owns both (the spec harness
+; stands in for awk/run under the suite). Nothing under lib/awk/ includes a platform
 ; module -- re-including one on a booted tower crashes rather than raising
 ; (x-lang#515).
 ;
