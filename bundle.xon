@@ -34,10 +34,17 @@
 ; a state image, and the suite boots from one (tests/gen-harness.sh) -- and
 ; v0.10.0 the floor for the lang itself: the stdin slurp's 64K chunks need its
 ; Str8 make stack fix.
-(requires-release "v0.62.0")
+(requires-release "v0.63.0")
 
 (entry run)
 
 ; The awk grammar, for any process that colours a file: awk/syntax imports
 ; x-lang libraries and awk/words only.
 (grammar awk (module awk/syntax) (files ".awk") (interpreters "awk" "nawk" "gawk" "mawk"))
+
+; The state image carries awk's closures compiled, and x/type/regex's with
+; them.  v0.63.0 is the floor: it compiles both correctly.  The release
+; amalgamation's awk program over lib/x/reader/lexer.x runs in 10.5 s,
+; against 28.5 s interpreted.  The first run writes the image: about three
+; minutes with an empty asm cache, a peak footprint of 2.6 GB.
+(image compiled)
